@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = [
+    "oxarr/core",
+    "oxarr/types",
+    "oxarr/parser",
+    "oxarr/indexer",
+    "oxarr/server",
+    "plugins/tmdb",
+]
+
+[workspace.package]
+license-file = "LICENSE"

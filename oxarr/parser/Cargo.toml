@@ -1,0 +1,10 @@
+[package]
+name = "oxarr-parser"
+version = "0.1.0"
+edition = "2021"
+license-file.workspace = true
+
+[dependencies]
+oxarr-types = { path = "../types" }
+serde = { version = "1.0", features = ["derive"] }
+regex = "1.10"
