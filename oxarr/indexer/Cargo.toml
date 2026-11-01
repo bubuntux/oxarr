@@ -1,13 +1,13 @@
 [package]
 name = "oxarr-indexer"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 license-file.workspace = true
 
 [dependencies]
-oxarr-types = { path = "../types" }
-async-trait = "0.1"
-anyhow = "1.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+oxarr-types.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
 quick-xml = { version = "0.37", features = ["serialize"] }
-tokio = { version = "1.0", features = ["macros", "rt"] }
+reqwest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }

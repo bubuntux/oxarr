@@ -5,3 +5,8 @@ devenv.local.yaml
 
 # Rust
 /target
+
+# Local dev database
+/oxarr.db
+/oxarr.db-shm
+/oxarr.db-wal

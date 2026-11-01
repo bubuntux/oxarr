@@ -1,0 +1,26 @@
+[package]
+name = "oxarr-migration"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+
+[features]
+# Enables the standalone migration CLI (`up`, `down`, `status`, `fresh`, `generate`, ...).
+# Kept off by default so embedding `Migrator` in the daemon does not pull in clap / sea-orm-cli.
+cli = ["sea-orm-migration/cli"]
+
+[[bin]]
+name = "oxarr-migration"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+async-trait.workspace = true
+sea-orm-migration = { version = "2.0", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "sqlx-sqlite",
+    "with-chrono",
+    "with-json",
+    "with-uuid",
+] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

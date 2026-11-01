@@ -1,18 +1,18 @@
 [package]
 name = "oxarr-server"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 license-file.workspace = true
 
 [dependencies]
-oxarr-types = { path = "../types" }
+oxarr-types.workspace = true
 oxarr-core = { path = "../core" }
-oxarr-parser = { path = "../parser" }
 oxarr-indexer = { path = "../indexer" }
+oxarr-parser = { path = "../parser" }
+askama = { version = "0.12", features = ["with-axum"] }
 axum = "0.8"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-askama = { version = "0.12", features = ["with-axum"] }
-tower-http = { version = "0.6", features = ["fs", "trace"] }

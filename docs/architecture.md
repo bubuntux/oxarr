@@ -7,7 +7,7 @@ Oxarr is a unified, high-performance media acquisition and streaming daemon writ
 ## 1. Architectural Principles
 
 1. **Simplicity & Efficiency:** Single binary, in-process SQLite (WAL mode), minimal memory footprint.
-2. **Generalized Entity Model:** Unified hierarchy (`Entity`, `MediaAsset`, `ReleaseCandidate`, `QualityProfile`) for movies, series, books, comics, and audio instead of siloed per-medium schemas.
+2. **Hybrid Typed Catalog (Class Table Inheritance):** A shared `UUIDv7`-keyed `entities` base table provides global identity, monitoring, quality profile inheritance, Jellyfin `ItemId` addressing, M:N file mapping (`entity_assets` -> `media_assets`), and release tracking (`tracked_releases`), while `1:1` per-medium extension tables (starting with `movies` and `collections` + `collection_movies`, and extending additively to series, custom Wasm media types, music, and books) enforce strict domain schemas and foreign keys. Release selection uses unified condition-based scoring (`QualityProfile` rules).
 3. **Dual Plugin Engine:**
    - **Native Providers:** Core protocols (Torznab, qBittorrent, TMDB) built directly into the binary with zero overhead.
    - **Wasm/Extism Sandbox:** External/community plugins compiled to `.wasm` running sandboxed with explicit capability grants (allowed network domains).
@@ -43,7 +43,7 @@ oxarr/
 │   └── architecture.md         # System architecture and design principles
 ├── oxarr/
 │   ├── types/                  # Canonical shared data structures across host and plugins
-│   ├── core/                   # Database access (sqlx/SQLite), config, download/import, plugin registry
+│   ├── core/                   # Database access (SeaORM/SQLite), config, download/import, plugin registry
 │   ├── parser/                 # Release name tokenization and quality scoring engine
 │   ├── indexer/                # Torznab/Newznab client and periodic RSS scheduler
 │   └── server/                 # Axum HTTP routes, background worker tasks, WebUI, Jellyfin API
@@ -59,7 +59,7 @@ oxarr/
 | :--- | :--- | :--- |
 | **Language** | Rust (2021 edition) | Minimal memory footprint on NAS, safe concurrency, fast async I/O. |
 | **Async Runtime** | `tokio` | Industry standard for network and process concurrency. |
-| **Database** | SQLite + `sqlx` (WAL mode) | Zero configuration, in-process speed, embedded migrations. |
+| **Database** | SQLite + `sea-orm` (WAL mode) | Zero configuration, in-process speed, type-safe relational queries, and embedded Rust migrations (`sea-orm-migration`). |
 | **Web Server** | `axum` + `tower` | Modular, ergonomic async HTTP framework. |
 | **Plugin Sandbox** | `extism` (Wasmtime) | Polyglot support, memory-safe sandboxing, network whitelisting. |
 | **Web UI** | `askama` + `htmx` | Single self-contained binary, microsecond render times, zero npm bloat. |
