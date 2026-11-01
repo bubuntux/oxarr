@@ -30,3 +30,4 @@ cargo run -p oxarr-server
 ## Documentation
 
 - [Architecture & Design Principles](docs/architecture.md)
+- [Roadmap & Milestones](https://github.com/bubuntux/oxarr/milestones)

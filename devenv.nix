@@ -18,6 +18,7 @@
   packages = [
     pkgs.cargo-nextest
     pkgs.cargo-watch
+    pkgs.gh
     pkgs.sqlite
     pkgs.sqlx-cli
   ];
