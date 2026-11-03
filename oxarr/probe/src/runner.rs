@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::process::Command;
 
 use crate::error::ProbeError;
 use crate::models::FfprobeOutput;
@@ -45,19 +44,72 @@ impl FfprobeConfig {
     }
 }
 
-/// Executes `ffprobe` against the file at `path` using default configuration.
+/// Synchronously executes `ffprobe` against the file at `path` using standard process I/O.
+pub fn probe_sync(path: impl AsRef<Path>) -> Result<FfprobeOutput, ProbeError> {
+    probe_sync_with_config(path, &FfprobeConfig::default())
+}
+
+/// Synchronously executes `ffprobe` against the file at `path` with a custom configuration.
+pub fn probe_sync_with_config(
+    path: impl AsRef<Path>,
+    config: &FfprobeConfig,
+) -> Result<FfprobeOutput, ProbeError> {
+    let path = path.as_ref();
+
+    let mut cmd = std::process::Command::new(&config.binary_path);
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        "-show_chapters",
+    ]);
+
+    for arg in &config.extra_args {
+        cmd.arg(arg);
+    }
+
+    cmd.arg(path);
+
+    let output = cmd.output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            ProbeError::BinaryNotFound {
+                binary: config.binary_path.display().to_string(),
+                source: err,
+            }
+        } else {
+            ProbeError::Io(err)
+        }
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(ProbeError::ExecutionFailed {
+            exit_code: output.status.code(),
+            stderr,
+        });
+    }
+
+    parse(&output.stdout)
+}
+
+/// Executes `ffprobe` asynchronously against the file at `path` using default configuration.
+#[cfg(feature = "tokio")]
 pub async fn probe(path: impl AsRef<Path>) -> Result<FfprobeOutput, ProbeError> {
     probe_with_config(path, &FfprobeConfig::default()).await
 }
 
-/// Executes `ffprobe` against the file at `path` using the given `config`.
+/// Executes `ffprobe` asynchronously against the file at `path` using the given `config`.
+#[cfg(feature = "tokio")]
 pub async fn probe_with_config(
     path: impl AsRef<Path>,
     config: &FfprobeConfig,
 ) -> Result<FfprobeOutput, ProbeError> {
     let path = path.as_ref();
 
-    let mut cmd = Command::new(&config.binary_path);
+    let mut cmd = tokio::process::Command::new(&config.binary_path);
     cmd.args([
         "-v",
         "quiet",

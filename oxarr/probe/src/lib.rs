@@ -6,7 +6,12 @@ pub use error::ProbeError;
 pub use models::{
     Chapter, FfprobeOutput, Format, Stream, StreamDisposition, StreamType,
 };
-pub use runner::{parse, parse_str, probe, probe_with_config, FfprobeConfig};
+pub use runner::{
+    parse, parse_str, probe_sync, probe_sync_with_config, FfprobeConfig,
+};
+
+#[cfg(feature = "tokio")]
+pub use runner::{probe, probe_with_config};
 
 #[cfg(test)]
 mod tests {
