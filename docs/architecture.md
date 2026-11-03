@@ -46,6 +46,7 @@ oxarr/
 │   ├── core/                   # Database access (SeaORM/SQLite), config, download/import, plugin registry
 │   ├── parser/                 # Release name tokenization and quality scoring engine
 │   ├── indexer/                # Torznab/Newznab client and periodic RSS scheduler
+│   ├── probe/                  # Media probing and ffprobe inspection engine
 │   └── server/                 # Axum HTTP routes, background worker tasks, WebUI, Jellyfin API
 └── plugins/
     └── tmdb/                   # Reference Wasm metadata plugin

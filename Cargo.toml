@@ -6,6 +6,7 @@ members = [
     "oxarr/migration",
     "oxarr/parser",
     "oxarr/indexer",
+    "oxarr/probe",
     "oxarr/server",
     "plugins/tmdb",
 ]
