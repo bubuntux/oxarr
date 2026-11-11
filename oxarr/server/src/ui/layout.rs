@@ -1,5 +1,7 @@
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
+pub const LOGO_SVG: &str = include_str!("../../../../assets/icons/logo.svg");
+
 const CSS_STYLES: &str = r#"
     :root[data-theme="dark"] {
         --bg-primary: #0f172a;
@@ -59,6 +61,13 @@ const CSS_STYLES: &str = r#"
         align-items: center;
         gap: 0.5rem;
         margin-bottom: 1rem;
+    }
+
+    .logo svg {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        flex-shrink: 0;
     }
 
     nav a {
@@ -158,13 +167,17 @@ pub fn base_layout(title: &str, current_nav: &str, content: Markup) -> Markup {
             head {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
+                link rel="icon" type="image/svg+xml" href="/logo.svg";
                 title { (title) " - oxarr" }
                 script src="https://unpkg.com/htmx.org@2.0.4" {}
                 style { (PreEscaped(CSS_STYLES)) }
             }
             body {
                 nav {
-                    div class="logo" { "🦀 oxarr" }
+                    div class="logo" {
+                        (PreEscaped(LOGO_SVG))
+                        span { "oxarr" }
+                    }
                     a href="/libraries" class=(if current_nav == "libraries" { "active" } else { "" }) {
                         "📁 Libraries"
                     }
@@ -183,5 +196,20 @@ pub fn base_layout(title: &str, current_nav: &str, content: Markup) -> Markup {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maud::html;
+
+    #[test]
+    fn test_base_layout_includes_favicon_and_logo() {
+        let markup = base_layout("Dashboard", "libraries", html! { p { "Hello" } });
+        let html_str = markup.into_string();
+        assert!(html_str.contains(r#"<link rel="icon" type="image/svg+xml" href="/logo.svg">"#));
+        assert!(html_str.contains("<svg"));
+        assert!(html_str.contains("<span>oxarr</span>"));
     }
 }

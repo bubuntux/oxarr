@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use axum::extract::{Form, Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
@@ -82,6 +82,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(|| async { Redirect::to("/libraries") }))
+        .route("/logo.svg", get(logo_handler))
+        .route("/favicon.ico", get(logo_handler))
+        .route("/favicon.svg", get(logo_handler))
         .route("/libraries", get(list_libraries).post(create_library))
         .route("/libraries/{id}", get(view_library))
         .route("/libraries/{id}/search", get(search_library_media))
@@ -315,6 +318,18 @@ async fn create_user(
     Redirect::to("/settings").into_response()
 }
 
+use crate::ui::layout::LOGO_SVG;
+
+async fn logo_handler() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=604800, immutable"),
+        ],
+        LOGO_SVG,
+    )
+}
+
 fn should_use_ansi() -> bool {
     if std::env::var("NO_COLOR").is_ok() {
         return false;
@@ -329,3 +344,26 @@ fn should_use_ansi() -> bool {
     }
     std::io::stderr().is_terminal()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::header;
+
+    #[tokio::test]
+    async fn test_logo_and_favicon_endpoint() {
+        let resp = logo_handler().await.into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/svg+xml"
+        );
+        assert_eq!(
+            resp.headers().get(header::CACHE_CONTROL).unwrap(),
+            "public, max-age=604800, immutable"
+        );
+        assert!(LOGO_SVG.contains("<svg"));
+        assert!(LOGO_SVG.contains("</svg>"));
+    }
+}
+

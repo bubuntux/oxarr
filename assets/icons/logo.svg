@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="oxarr-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c1917"/>
+      <stop offset="100%" stop-color="#0c0a09"/>
+    </linearGradient>
+    <linearGradient id="oxarr-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fed7aa"/>
+      <stop offset="50%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <filter id="oxarr-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#f97316" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#oxarr-bg)" stroke="#431407" stroke-width="4"/>
+
+  <!-- Oxarr Hub: Crossed Convergence Beacons & Twin Crab Claws -->
+  <g filter="url(#oxarr-glow)">
+    <!-- Clean Crossed X-Beams Connecting 4 Outer *arr Nodes -->
+    <g stroke="#c2410c" stroke-width="20" stroke-linecap="round">
+      <line x1="96" y1="400" x2="416" y2="112"/>
+      <line x1="96" y1="112" x2="416" y2="400"/>
+    </g>
+
+    <!-- 4 Outer *arr Satellite Beacons on the X-Tips -->
+    <circle cx="96" cy="112" r="24" fill="#0c0a09" stroke="#fed7aa" stroke-width="12"/>
+    <circle cx="416" cy="112" r="24" fill="#0c0a09" stroke="#fb923c" stroke-width="12"/>
+    <circle cx="96" cy="400" r="24" fill="#0c0a09" stroke="#f97316" stroke-width="12"/>
+    <circle cx="416" cy="400" r="24" fill="#0c0a09" stroke="#ea580c" stroke-width="12"/>
+
+    <!-- Dark Backing Disc -->
+    <circle cx="256" cy="256" r="128" fill="#0c0a09"/>
+
+    <!-- Single-Layer Bold Twin Crab Claws Forming the Hub Directly -->
+    <path d="M 232 136 C 162 146, 118 202, 128 272 C 136 326, 178 368, 234 378 L 242 332 C 204 324, 176 294, 172 258 C 168 214, 196 180, 236 172 L 208 206 L 252 194 Z" fill="url(#oxarr-orange)"/>
+    <path d="M 280 136 C 350 146, 394 202, 384 272 C 376 326, 334 368, 278 378 L 270 332 C 308 324, 336 294, 340 258 C 344 214, 316 180, 276 172 L 304 206 L 260 194 Z" fill="url(#oxarr-orange)"/>
+
+    <!-- Bold Central Media Play Triangle -->
+    <polygon points="240,232 286,258 240,284" fill="#fed7aa"/>
+  </g>
+</svg>
