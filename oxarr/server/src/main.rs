@@ -131,6 +131,7 @@ fn extract_streams(media_info: &serde_json::Value) -> Vec<StreamViewModel> {
 struct LibrariesTemplate {
     current_nav: &'static str,
     libraries: Vec<LibraryViewModel>,
+    available_kinds: &'static [EntityKind],
 }
 
 struct LibraryViewModel {
@@ -273,6 +274,7 @@ async fn list_libraries(State(state): State<AppState>) -> Response {
     render(LibrariesTemplate {
         current_nav: "libraries",
         libraries: view_models,
+        available_kinds: EntityKind::LIBRARY_KINDS,
     })
 }
 
@@ -280,10 +282,7 @@ async fn create_library(
     State(state): State<AppState>,
     Form(form): Form<CreateLibraryForm>,
 ) -> Response {
-    let kind = match form.kind.as_str() {
-        "series" => EntityKind::Series,
-        _ => EntityKind::Movie,
-    };
+    let kind = EntityKind::from_value(&form.kind).unwrap_or(EntityKind::Movie);
     let lib = Library {
         id: new_id(),
         name: form.name,

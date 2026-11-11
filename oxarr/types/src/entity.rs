@@ -14,6 +14,36 @@ pub enum EntityKind {
     Series,
 }
 
+impl EntityKind {
+    /// The physical library kinds configurable on disk.
+    pub const LIBRARY_KINDS: &'static [EntityKind] = &[EntityKind::Movie, EntityKind::Series];
+
+    pub fn value(&self) -> &'static str {
+        match self {
+            Self::Movie => "movie",
+            Self::Series => "series",
+            Self::Collection => "collection",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Movie => "Movies",
+            Self::Series => "TV Shows",
+            Self::Collection => "Collections",
+        }
+    }
+
+    pub fn from_value(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "movie" => Some(Self::Movie),
+            "series" => Some(Self::Series),
+            "collection" => Some(Self::Collection),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Library {
     pub id: Uuid,

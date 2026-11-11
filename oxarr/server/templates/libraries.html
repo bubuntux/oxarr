@@ -59,8 +59,9 @@
             <div>
                 <label style="display: block; font-size: 0.875rem; margin-bottom: 0.4rem; color: var(--text-secondary);">Media Type</label>
                 <select name="kind" style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
-                    <option value="movie">Movies</option>
-                    <option value="series">TV Shows</option>
+                    {% for kind in available_kinds %}
+                    <option value="{{ kind.value() }}">{{ kind.label() }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
