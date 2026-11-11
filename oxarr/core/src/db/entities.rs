@@ -9,7 +9,6 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::collections::collection_ids_of_movie;
 use super::models::enums::DbEntityKind;
 use super::models::json_types::DbEntityMetadata;
 use super::models::{collection, entity, entity_external_id, movie};
@@ -72,7 +71,6 @@ pub(super) async fn hydrate_entities<C: ConnectionTrait>(
                     in_cinemas_date: m.in_cinemas_date,
                     digital_release_date: m.digital_release_date,
                     physical_release_date: m.physical_release_date,
-                    minimum_availability: m.minimum_availability.into(),
                     runtime_minutes,
                     certification: m.certification,
                     studio: m.studio,
@@ -99,7 +97,6 @@ pub(super) async fn hydrate_entities<C: ConnectionTrait>(
             original_title: base.original_title,
             original_language: base.original_language,
             monitored: base.monitored,
-            quality_profile_id: base.quality_profile_id,
             external_ids,
             metadata: base.metadata_json.0,
             details,
@@ -129,7 +126,6 @@ async fn insert_subtype_in_tx(
                 in_cinemas_date: Set(m.in_cinemas_date),
                 digital_release_date: Set(m.digital_release_date),
                 physical_release_date: Set(m.physical_release_date),
-                minimum_availability: Set(m.minimum_availability.into()),
                 runtime_minutes: Set(runtime_minutes),
                 certification: Set(m.certification.clone()),
                 studio: Set(m.studio.clone()),
@@ -149,7 +145,6 @@ async fn insert_subtype_in_tx(
                 .with_context(|| format!("failed to insert collection details for {entity_id}"))?;
         }
     }
-
     Ok(())
 }
 
@@ -159,175 +154,166 @@ async fn insert_external_ids_in_tx(
     kind: EntityKind,
     external_ids: &BTreeMap<String, String>,
 ) -> Result<()> {
-    if external_ids.is_empty() {
-        return Ok(());
-    }
-
-    let rows: Vec<entity_external_id::ActiveModel> = external_ids
-        .iter()
-        .map(|(provider, external_id)| entity_external_id::ActiveModel {
+    let entity_kind: DbEntityKind = kind.into();
+    for (provider, external_id) in external_ids {
+        let active = entity_external_id::ActiveModel {
             entity_id: Set(entity_id),
             provider: Set(provider.clone()),
-            entity_kind: Set(kind.into()),
+            entity_kind: Set(entity_kind),
             external_id: Set(external_id.clone()),
-        })
-        .collect();
-
-    entity_external_id::Entity::insert_many(rows)
-        .exec(tx)
-        .await
-        .with_context(|| format!("failed to insert external IDs for entity {entity_id}"))?;
-
-    Ok(())
-}
-
-async fn insert_entity_in_tx(tx: &DatabaseTransaction, item: &Entity) -> Result<()> {
-    let kind = item.kind;
-
-    let active = entity::ActiveModel {
-        id: Set(item.id),
-        library_id: Set(item.library_id),
-        kind: Set(kind.into()),
-        title: Set(item.title.clone()),
-        original_title: Set(item.original_title.clone()),
-        original_language: Set(item.original_language.clone()),
-        monitored: Set(item.monitored),
-        quality_profile_id: Set(item.quality_profile_id),
-        metadata_json: Set(DbEntityMetadata(item.metadata.clone())),
-        created_at: Set(item.created_at),
-        updated_at: Set(item.updated_at),
-    };
-
-    entity::Entity::insert(active)
-        .exec(tx)
-        .await
-        .with_context(|| format!("failed to insert entity '{}'", item.title))?;
-
-    insert_subtype_in_tx(tx, item.id, &item.details).await?;
-    insert_external_ids_in_tx(tx, item.id, kind, &item.external_ids).await?;
-
+        };
+        entity_external_id::Entity::insert(active)
+            .exec(tx)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to insert external_id '{provider}:{external_id}' for entity {entity_id}"
+                )
+            })?;
+    }
     Ok(())
 }
 
 impl Database {
+    /// Inserts an entity, its subtype record (movies/collections), and its external IDs
+    /// atomically inside a transaction.
     pub async fn insert_entity(&self, item: &Entity) -> Result<()> {
         let tx = self.conn.begin().await?;
-        insert_entity_in_tx(&tx, item).await?;
+
+        let base = entity::ActiveModel {
+            id: Set(item.id),
+            library_id: Set(item.library_id),
+            kind: Set(item.kind.into()),
+            title: Set(item.title.clone()),
+            original_title: Set(item.original_title.clone()),
+            original_language: Set(item.original_language.clone()),
+            monitored: Set(item.monitored),
+            metadata_json: Set(DbEntityMetadata(item.metadata.clone())),
+            created_at: Set(item.created_at),
+            updated_at: Set(item.updated_at),
+        };
+
+        entity::Entity::insert(base)
+            .exec(&tx)
+            .await
+            .with_context(|| format!("failed to insert entity base record for {}", item.id))?;
+
+        insert_subtype_in_tx(&tx, item.id, &item.details).await?;
+        insert_external_ids_in_tx(&tx, item.id, item.kind, &item.external_ids).await?;
+
         tx.commit().await?;
         Ok(())
     }
 
+    /// Inserts multiple entities in a single atomic database transaction.
     pub async fn insert_entities_batch(&self, items: &[Entity]) -> Result<()> {
         let tx = self.conn.begin().await?;
+
         for item in items {
-            insert_entity_in_tx(&tx, item).await?;
+            let base = entity::ActiveModel {
+                id: Set(item.id),
+                library_id: Set(item.library_id),
+                kind: Set(item.kind.into()),
+                title: Set(item.title.clone()),
+                original_title: Set(item.original_title.clone()),
+                original_language: Set(item.original_language.clone()),
+                monitored: Set(item.monitored),
+                metadata_json: Set(DbEntityMetadata(item.metadata.clone())),
+                created_at: Set(item.created_at),
+                updated_at: Set(item.updated_at),
+            };
+
+            entity::Entity::insert(base)
+                .exec(&tx)
+                .await
+                .with_context(|| format!("failed to insert batch entity base record {}", item.id))?;
+
+            insert_subtype_in_tx(&tx, item.id, &item.details).await?;
+            insert_external_ids_in_tx(&tx, item.id, item.kind, &item.external_ids).await?;
         }
+
         tx.commit().await?;
         Ok(())
     }
 
+    /// Fetches an entity by ID, including its subtype row and external IDs.
     pub async fn get_entity(&self, id: Uuid) -> Result<Option<Entity>> {
-        let Some(model) = entity::Entity::find_by_id(id)
+        let Some(base) = entity::Entity::find_by_id(id)
             .one(&self.conn)
             .await
-            .with_context(|| format!("failed to fetch entity {id}"))?
+            .with_context(|| format!("failed to get entity {id}"))?
         else {
             return Ok(None);
         };
 
-        let mut hydrated = hydrate_entities(&self.conn, vec![model]).await?;
-        Ok(hydrated.pop())
+        let hydrated = hydrate_entities(&self.conn, vec![base]).await?;
+        Ok(hydrated.into_iter().next())
     }
 
+    /// Resolves an entity given a provider identifier scoped to its kind.
     pub async fn get_entity_by_external_id(
         &self,
         kind: EntityKind,
         provider: &str,
         external_id: &str,
     ) -> Result<Option<Entity>> {
-        let Some(model) = entity::Entity::find()
-            .inner_join(entity_external_id::Entity)
-            .filter(entity_external_id::Column::EntityKind.eq(DbEntityKind::from(kind)))
+        let db_kind = DbEntityKind::from(kind);
+        let row = entity_external_id::Entity::find()
             .filter(entity_external_id::Column::Provider.eq(provider))
+            .filter(entity_external_id::Column::EntityKind.eq(db_kind))
             .filter(entity_external_id::Column::ExternalId.eq(external_id))
             .one(&self.conn)
             .await
             .with_context(|| {
-                format!("failed to fetch {kind:?} entity by external id {provider}:{external_id}")
-            })?
-        else {
+                format!("failed to query external id {provider}:{kind:?}:{external_id}")
+            })?;
+
+        let Some(row) = row else {
             return Ok(None);
         };
 
-        let mut hydrated = hydrate_entities(&self.conn, vec![model]).await?;
-        Ok(hydrated.pop())
+        self.get_entity(row.entity_id).await
     }
 
-    /// Kind-agnostic external ID lookup (useful for globally unique IDs like IMDb `tt...`).
+    /// Finds all entities associated with a provider identifier regardless of `EntityKind`.
     pub async fn find_entities_by_external_id(
         &self,
         provider: &str,
         external_id: &str,
     ) -> Result<Vec<Entity>> {
-        let models = entity::Entity::find()
-            .inner_join(entity_external_id::Entity)
+        let ext_rows = entity_external_id::Entity::find()
             .filter(entity_external_id::Column::Provider.eq(provider))
             .filter(entity_external_id::Column::ExternalId.eq(external_id))
-            .order_by_asc(entity::Column::Title)
             .all(&self.conn)
             .await
             .with_context(|| {
-                format!("failed to search entities by external id {provider}:{external_id}")
+                format!("failed to query entities for external id {provider}:{external_id}")
             })?;
 
-        hydrate_entities(&self.conn, models).await
+        if ext_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<Uuid> = ext_rows.into_iter().map(|r| r.entity_id).collect();
+        let base_models = entity::Entity::find()
+            .filter(entity::Column::Id.is_in(ids))
+            .all(&self.conn)
+            .await?;
+
+        hydrate_entities(&self.conn, base_models).await
     }
 
-    pub async fn list_library_entities(&self, library_id: Uuid) -> Result<Vec<Entity>> {
+    /// Lists entities in a library, ordered by title and id.
+    pub async fn list_entities_in_library(&self, library_id: Uuid) -> Result<Vec<Entity>> {
         let models = entity::Entity::find()
             .filter(entity::Column::LibraryId.eq(library_id))
             .order_by_asc(entity::Column::Title)
+            .order_by_asc(entity::Column::Id)
             .all(&self.conn)
             .await
             .with_context(|| format!("failed to list entities in library {library_id}"))?;
 
         hydrate_entities(&self.conn, models).await
-    }
-
-    /// Resolves the effective quality profile for an entity by walking:
-    /// 1. Explicit `quality_profile_id` on the entity itself,
-    /// 2. Explicit `quality_profile_id` on a Movie's linked `Collection`.
-    pub async fn resolve_effective_quality_profile_id(
-        &self,
-        entity_id: Uuid,
-    ) -> Result<Option<Uuid>> {
-        let Some(base) = entity::Entity::find_by_id(entity_id)
-            .one(&self.conn)
-            .await
-            .with_context(|| format!("failed to resolve quality profile for entity {entity_id}"))?
-        else {
-            return Ok(None);
-        };
-
-        if base.quality_profile_id.is_some() {
-            return Ok(base.quality_profile_id);
-        }
-
-        if base.kind == DbEntityKind::Movie {
-            let collection_entity = entity::Entity::find()
-                .filter(entity::Column::Id.in_subquery(collection_ids_of_movie(entity_id)))
-                .filter(entity::Column::QualityProfileId.is_not_null())
-                .order_by_asc(entity::Column::CreatedAt)
-                .order_by_asc(entity::Column::Id)
-                .one(&self.conn)
-                .await?;
-
-            if let Some(col) = collection_entity {
-                return Ok(col.quality_profile_id);
-            }
-        }
-
-        Ok(None)
     }
 
     /// Updates an existing entity of the same `EntityKind`. Returns `Ok(false)` if no row
@@ -350,7 +336,6 @@ impl Database {
         active.original_title = Set(item.original_title.clone());
         active.original_language = Set(item.original_language.clone());
         active.monitored = Set(item.monitored);
-        active.quality_profile_id = Set(item.quality_profile_id);
         active.metadata_json = Set(DbEntityMetadata(item.metadata.clone()));
         active.updated_at = Set(item.updated_at);
         active.update(&tx).await?;
@@ -368,7 +353,6 @@ impl Database {
                     in_cinemas_date: Set(m.in_cinemas_date),
                     digital_release_date: Set(m.digital_release_date),
                     physical_release_date: Set(m.physical_release_date),
-                    minimum_availability: Set(m.minimum_availability.into()),
                     runtime_minutes: Set(runtime_minutes),
                     certification: Set(m.certification.clone()),
                     studio: Set(m.studio.clone()),

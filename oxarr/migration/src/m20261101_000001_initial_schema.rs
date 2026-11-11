@@ -51,60 +51,6 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(QualityProfiles::Table)
-                    .col(
-                        ColumnDef::new(QualityProfiles::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::Name)
-                            .string()
-                            .not_null()
-                            .unique_key(),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::UpgradeAllowed)
-                            .boolean()
-                            .not_null()
-                            .default(true),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::MinScore)
-                            .integer()
-                            .not_null()
-                            .default(0),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::CutoffScore)
-                            .integer()
-                            .not_null()
-                            .default(100),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::ClassifierScoresJson)
-                            .json()
-                            .not_null()
-                            .default("[]"),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(QualityProfiles::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
                     .table(Libraries::Table)
                     .col(
                         ColumnDef::new(Libraries::Id)
@@ -165,7 +111,6 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(true),
                     )
-                    .col(ColumnDef::new(Entities::QualityProfileId).uuid())
                     .col(
                         ColumnDef::new(Entities::MetadataJson)
                             .json()
@@ -193,12 +138,6 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .from(Entities::Table, Entities::LibraryId)
                             .to(Libraries::Table, Libraries::Id)
-                            .on_delete(ForeignKeyAction::Restrict),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .from(Entities::Table, Entities::QualityProfileId)
-                            .to(QualityProfiles::Table, QualityProfiles::Id)
                             .on_delete(ForeignKeyAction::Restrict),
                     )
                     .to_owned(),
@@ -258,13 +197,14 @@ impl MigrationTrait for Migration {
                     .primary_key(
                         Index::create()
                             .col(EntityExternalIds::EntityId)
-                            .col(EntityExternalIds::Provider),
+                            .col(EntityExternalIds::Provider)
+                            .col(EntityExternalIds::ExternalId),
                     )
                     .index(
                         Index::create()
-                            .name("uq_entity_external_ids_scoped")
-                            .col(EntityExternalIds::EntityKind)
+                            .name("uq_entity_ext_provider_kind_id")
                             .col(EntityExternalIds::Provider)
+                            .col(EntityExternalIds::EntityKind)
                             .col(EntityExternalIds::ExternalId)
                             .unique(),
                     )
@@ -272,7 +212,10 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .from(
                                 EntityExternalIds::Table,
-                                (EntityExternalIds::EntityId, EntityExternalIds::EntityKind),
+                                (
+                                    EntityExternalIds::EntityId,
+                                    EntityExternalIds::EntityKind,
+                                ),
                             )
                             .to(Entities::Table, (Entities::Id, Entities::Kind))
                             .on_delete(ForeignKeyAction::Cascade),
@@ -284,7 +227,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_entity_external_ids_lookup")
+                    .name("idx_entity_ext_ids_lookup")
                     .table(EntityExternalIds::Table)
                     .col(EntityExternalIds::Provider)
                     .col(EntityExternalIds::ExternalId)
@@ -313,17 +256,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Movies::DigitalReleaseDate).date())
                     .col(ColumnDef::new(Movies::PhysicalReleaseDate).date())
                     .col(
-                        ColumnDef::new(Movies::MinimumAvailability)
-                            .string()
-                            .not_null()
-                            .default("released")
-                            .check(Expr::col(Movies::MinimumAvailability).is_in([
-                                "announced",
-                                "in_cinemas",
-                                "released",
-                            ])),
-                    )
-                    .col(
                         ColumnDef::new(Movies::RuntimeMinutes).integer().check(
                             Expr::col(Movies::RuntimeMinutes)
                                 .is_null()
@@ -338,18 +270,6 @@ impl MigrationTrait for Migration {
                             .to(Entities::Table, Entities::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_movies_availability")
-                    .table(Movies::Table)
-                    .col(Movies::MinimumAvailability)
-                    .col(Movies::DigitalReleaseDate)
-                    .col(Movies::InCinemasDate)
                     .to_owned(),
             )
             .await?;
@@ -401,17 +321,6 @@ impl MigrationTrait for Migration {
                             .to(Movies::Table, Movies::EntityId)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_collection_movies_movie")
-                    .table(CollectionMovies::Table)
-                    .col(CollectionMovies::MovieId)
-                    .col(CollectionMovies::CollectionId)
                     .to_owned(),
             )
             .await?;
@@ -507,104 +416,12 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(
-                Table::create()
-                    .table(TrackedReleases::Table)
-                    .col(
-                        ColumnDef::new(TrackedReleases::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(TrackedReleases::EntityId).uuid().not_null())
-                    .col(ColumnDef::new(TrackedReleases::Indexer).string().not_null())
-                    .col(ColumnDef::new(TrackedReleases::Guid).string().not_null())
-                    .col(ColumnDef::new(TrackedReleases::Title).string().not_null())
-                    .col(
-                        ColumnDef::new(TrackedReleases::DownloadUrl)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(TrackedReleases::InfoHash).string())
-                    .col(
-                        ColumnDef::new(TrackedReleases::SizeBytes)
-                            .big_integer()
-                            .not_null()
-                            .check(Expr::col(TrackedReleases::SizeBytes).gte(0)),
-                    )
-                    .col(ColumnDef::new(TrackedReleases::Score).integer().not_null())
-                    .col(
-                        ColumnDef::new(TrackedReleases::MatchedClassifierIdsJson)
-                            .json()
-                            .not_null()
-                            .default("[]"),
-                    )
-                    .col(
-                        ColumnDef::new(TrackedReleases::Status)
-                            .string()
-                            .not_null()
-                            .check(Expr::col(TrackedReleases::Status).is_in([
-                                "grabbed",
-                                "imported",
-                                "failed",
-                                "blocklisted",
-                            ])),
-                    )
-                    .col(ColumnDef::new(TrackedReleases::DownloadClientId).string())
-                    .col(ColumnDef::new(TrackedReleases::PublishedAt).timestamp_with_time_zone())
-                    .col(
-                        ColumnDef::new(TrackedReleases::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(TrackedReleases::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .index(
-                        Index::create()
-                            .name("uq_tracked_releases_indexer_guid")
-                            .col(TrackedReleases::Indexer)
-                            .col(TrackedReleases::Guid)
-                            .unique(),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .from(TrackedReleases::Table, TrackedReleases::EntityId)
-                            .to(Entities::Table, Entities::Id)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_tracked_releases_entity")
-                    .table(TrackedReleases::Table)
-                    .col(TrackedReleases::EntityId)
-                    .col(TrackedReleases::Status)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
             .get_connection()
             .execute_unprepared(
                 r#"
                 CREATE INDEX idx_entities_monitored
                     ON entities(monitored, kind)
                     WHERE monitored = 1;
-
-                CREATE INDEX idx_tracked_releases_info_hash
-                    ON tracked_releases(info_hash)
-                    WHERE info_hash IS NOT NULL;
-
-                CREATE INDEX idx_tracked_releases_dl_id
-                    ON tracked_releases(download_client_id)
-                    WHERE download_client_id IS NOT NULL;
 
                 CREATE TRIGGER trg_cleanup_orphaned_media_assets
                 AFTER DELETE ON entity_assets
@@ -613,6 +430,47 @@ impl MigrationTrait for Migration {
                     DELETE FROM media_assets WHERE id = OLD.asset_id;
                 END;
                 "#,
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(Users::Table)
+                    .col(ColumnDef::new(Users::Id).uuid().not_null().primary_key())
+                    .col(ColumnDef::new(Users::Username).string().not_null().unique_key())
+                    .col(ColumnDef::new(Users::PasswordHash).string().not_null())
+                    .col(ColumnDef::new(Users::IsAdmin).boolean().not_null().default(false))
+                    .col(ColumnDef::new(Users::CreatedAt).timestamp_with_time_zone().not_null())
+                    .col(ColumnDef::new(Users::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(UserLibraries::Table)
+                    .col(ColumnDef::new(UserLibraries::UserId).uuid().not_null())
+                    .col(ColumnDef::new(UserLibraries::LibraryId).uuid().not_null())
+                    .primary_key(
+                        Index::create()
+                            .col(UserLibraries::UserId)
+                            .col(UserLibraries::LibraryId),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(UserLibraries::Table, UserLibraries::UserId)
+                            .to(Users::Table, Users::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(UserLibraries::Table, UserLibraries::LibraryId)
+                            .to(Libraries::Table, Libraries::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
             )
             .await?;
 
@@ -626,7 +484,8 @@ impl MigrationTrait for Migration {
             .await?;
 
         for table in [
-            TrackedReleases::Table.into_table_ref(),
+            UserLibraries::Table.into_table_ref(),
+            Users::Table.into_table_ref(),
             EntityAssets::Table.into_table_ref(),
             MediaAssets::Table.into_table_ref(),
             CollectionMovies::Table.into_table_ref(),
@@ -635,7 +494,6 @@ impl MigrationTrait for Migration {
             EntityExternalIds::Table.into_table_ref(),
             Entities::Table.into_table_ref(),
             Libraries::Table.into_table_ref(),
-            QualityProfiles::Table.into_table_ref(),
             Classifiers::Table.into_table_ref(),
         ] {
             manager
@@ -654,19 +512,6 @@ enum Classifiers {
     Name,
     MatchAll,
     ConditionsJson,
-    CreatedAt,
-    UpdatedAt,
-}
-
-#[derive(DeriveIden)]
-enum QualityProfiles {
-    Table,
-    Id,
-    Name,
-    UpgradeAllowed,
-    MinScore,
-    CutoffScore,
-    ClassifierScoresJson,
     CreatedAt,
     UpdatedAt,
 }
@@ -692,7 +537,6 @@ enum Entities {
     OriginalTitle,
     OriginalLanguage,
     Monitored,
-    QualityProfileId,
     MetadataJson,
     CreatedAt,
     UpdatedAt,
@@ -715,7 +559,6 @@ enum Movies {
     InCinemasDate,
     DigitalReleaseDate,
     PhysicalReleaseDate,
-    MinimumAvailability,
     RuntimeMinutes,
     Certification,
     Studio,
@@ -755,21 +598,19 @@ enum EntityAssets {
 }
 
 #[derive(DeriveIden)]
-enum TrackedReleases {
+enum Users {
     Table,
     Id,
-    EntityId,
-    Indexer,
-    Guid,
-    Title,
-    DownloadUrl,
-    InfoHash,
-    SizeBytes,
-    Score,
-    MatchedClassifierIdsJson,
-    Status,
-    DownloadClientId,
-    PublishedAt,
+    Username,
+    PasswordHash,
+    IsAdmin,
     CreatedAt,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum UserLibraries {
+    Table,
+    UserId,
+    LibraryId,
 }

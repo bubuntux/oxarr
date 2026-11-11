@@ -4,8 +4,7 @@ mod collections;
 mod entities;
 mod libraries;
 pub mod models;
-mod profiles;
-mod releases;
+mod users;
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -98,8 +97,7 @@ mod tests {
     use chrono::{NaiveDate, SubsecRound, Utc};
     use oxarr_types::{
         Classifier, ClassifierCondition, CollectionDetails, Entity, EntityDetails, EntityKind,
-        EntityMetadata, Library, MediaAsset, MinimumAvailability, MovieDetails,
-        ProfileClassifierScore, QualityProfile, TrackedRelease, TrackedReleaseStatus,
+        EntityMetadata, Library, MediaAsset, MovieDetails,
     };
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     use serde_json::json;
@@ -125,7 +123,6 @@ mod tests {
             original_title: None,
             original_language: None,
             monitored: true,
-            quality_profile_id: None,
             external_ids: BTreeMap::new(),
             metadata: EntityMetadata::default(),
             details,
@@ -180,7 +177,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn movies_collections_profile_inheritance_and_asset_cascades() {
+    async fn movies_collections_and_asset_cascades() {
         let db = Database::connect_in_memory()
             .await
             .expect("connect memory db");
@@ -197,72 +194,7 @@ mod tests {
             created_at: now,
             updated_at: now,
         };
-        let classifier_cam = Classifier {
-            id: new_id(),
-            name: "CAM".to_owned(),
-            conditions: vec![ClassifierCondition::Regex {
-                pattern: r"\b(cam|camrip|telesync|ts)\b".to_owned(),
-                negate: false,
-            }],
-            match_all: true,
-            created_at: now,
-            updated_at: now,
-        };
         db.insert_classifier(&classifier_2160p).await.unwrap();
-        db.insert_classifier(&classifier_cam).await.unwrap();
-
-        let lib_profile = QualityProfile {
-            id: new_id(),
-            name: "HD 1080p".to_owned(),
-            upgrade_allowed: true,
-            min_score: 500,
-            cutoff_score: 2000,
-            classifier_scores: vec![
-                ProfileClassifierScore {
-                    classifier_id: classifier_2160p.id,
-                    score: 1500,
-                    reject: false,
-                },
-                ProfileClassifierScore {
-                    classifier_id: classifier_cam.id,
-                    score: 0,
-                    reject: true,
-                },
-            ],
-            created_at: now,
-            updated_at: now,
-        };
-        let collection_profile = QualityProfile {
-            id: new_id(),
-            name: "4K HDR".to_owned(),
-            upgrade_allowed: true,
-            min_score: 1000,
-            cutoff_score: 4000,
-            classifier_scores: vec![ProfileClassifierScore {
-                classifier_id: classifier_2160p.id,
-                score: 3000,
-                reject: false,
-            }],
-            created_at: now,
-            updated_at: now,
-        };
-        let movie_override_profile = QualityProfile {
-            id: new_id(),
-            name: "4K Remux".to_owned(),
-            upgrade_allowed: false,
-            min_score: 2000,
-            cutoff_score: 5000,
-            classifier_scores: Vec::new(),
-            created_at: now,
-            updated_at: now,
-        };
-        db.insert_quality_profile(&lib_profile).await.unwrap();
-        db.insert_quality_profile(&collection_profile)
-            .await
-            .unwrap();
-        db.insert_quality_profile(&movie_override_profile)
-            .await
-            .unwrap();
 
         let movie_lib = Library {
             id: new_id(),
@@ -283,7 +215,6 @@ mod tests {
             now,
         );
         matrix_collection.library_id = Some(movie_lib.id);
-        matrix_collection.quality_profile_id = Some(collection_profile.id);
         matrix_collection.external_ids = BTreeMap::from([("tmdb".to_owned(), "2344".to_owned())]);
 
         let matrix_1_id = new_id();
@@ -296,7 +227,6 @@ mod tests {
                 in_cinemas_date: NaiveDate::from_ymd_opt(1999, 3, 31),
                 digital_release_date: None,
                 physical_release_date: NaiveDate::from_ymd_opt(1999, 9, 21),
-                minimum_availability: MinimumAvailability::Released,
                 runtime_minutes: Some(136),
                 certification: Some("R".to_owned()),
                 studio: Some("Warner Bros.".to_owned()),
@@ -324,7 +254,6 @@ mod tests {
             now,
         );
         matrix_2.library_id = Some(movie_lib.id);
-        matrix_2.quality_profile_id = Some(movie_override_profile.id);
 
         let standalone_id = new_id();
         let mut standalone = base_entity(
@@ -383,35 +312,9 @@ mod tests {
             vec![matrix_collection]
         );
 
-        // Effective profile resolution: Movie override -> Collection
-        assert_eq!(
-            db.resolve_effective_quality_profile_id(matrix_2_id)
-                .await
-                .unwrap(),
-            Some(movie_override_profile.id)
-        );
-        assert_eq!(
-            db.resolve_effective_quality_profile_id(matrix_1_id)
-                .await
-                .unwrap(),
-            Some(collection_profile.id)
-        );
-        assert_eq!(
-            db.resolve_effective_quality_profile_id(standalone_id)
-                .await
-                .unwrap(),
-            None
-        );
-
-        // Deleting a Collection preserves its Movies; Movie falls back to None (since library default was dropped)
+        // Deleting a Collection preserves its Movies
         assert!(db.delete_entity(collection_id).await.unwrap());
         assert!(db.get_entity(matrix_1_id).await.unwrap().is_some());
-        assert_eq!(
-            db.resolve_effective_quality_profile_id(matrix_1_id)
-                .await
-                .unwrap(),
-            None
-        );
 
         // M:N MediaAsset: shared across two entities survives deleting the first, and auto-cleans on the last
         let asset = MediaAsset {
@@ -430,44 +333,8 @@ mod tests {
             Some(asset.clone())
         );
 
-        let tracked = TrackedRelease {
-            id: new_id(),
-            entity_id: matrix_1_id,
-            indexer: "ptp".to_owned(),
-            guid: "https://example.invalid/release/603".to_owned(),
-            title: "The.Matrix.1999.2160p.UHD.BluRay.REMUX.DV.HDR.TrueHD.7.1.Atmos-FraMeSToR"
-                .to_owned(),
-            download_url: "magnet:?xt=urn:btih:abcdef1234567890".to_owned(),
-            info_hash: Some("abcdef1234567890".to_owned()),
-            size_bytes: 42_000_000_000,
-            score: 5500,
-            matched_classifier_ids: vec![classifier_2160p.id],
-            status: TrackedReleaseStatus::Grabbed,
-            download_client_id: None,
-            published_at: Some(now),
-            created_at: now,
-            updated_at: now,
-        };
-        db.insert_tracked_release(&tracked).await.unwrap();
-
-        db.update_tracked_release_status(
-            tracked.id,
-            TrackedReleaseStatus::Imported,
-            Some("qbit:abcdef1234567890"),
-            now,
-        )
-        .await
-        .unwrap();
-        let fetched_release = db
-            .get_tracked_release_by_guid("ptp", "https://example.invalid/release/603")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(fetched_release.status, TrackedReleaseStatus::Imported);
-
-        // Deleting matrix_1 removes its tracked_release & external_ids, but keeps shared asset alive for matrix_2
+        // Deleting matrix_1 keeps shared asset alive for matrix_2
         assert!(db.delete_entity(matrix_1_id).await.unwrap());
-        assert!(db.get_tracked_release(tracked.id).await.unwrap().is_none());
         let surviving_asset = db.get_media_asset(asset.id).await.unwrap().unwrap();
         assert_eq!(surviving_asset.entity_ids, vec![matrix_2_id]);
 
@@ -534,5 +401,60 @@ mod tests {
             .await
             .expect("rolled back entity lookup")
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn user_management_and_library_access_control() {
+        let db = Database::connect_in_memory()
+            .await
+            .expect("connect memory db");
+        let now = sample_timestamp();
+
+        let admin = db
+            .insert_user(new_id(), "admin", "argon2_hash_admin", true, now)
+            .await
+            .unwrap();
+        let user = db
+            .insert_user(new_id(), "alice", "argon2_hash_alice", false, now)
+            .await
+            .unwrap();
+
+        let lib_movies = Library {
+            id: new_id(),
+            name: "Movies".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "/media/movies".to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
+        let lib_kids = Library {
+            id: new_id(),
+            name: "Kids".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "/media/kids".to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
+        db.insert_library(&lib_movies).await.unwrap();
+        db.insert_library(&lib_kids).await.unwrap();
+
+        // Admin has universal access
+        assert!(db.user_can_access_library(admin.id, lib_movies.id).await.unwrap());
+        assert!(db.user_can_access_library(admin.id, lib_kids.id).await.unwrap());
+
+        // Regular user has no access by default
+        assert!(!db.user_can_access_library(user.id, lib_movies.id).await.unwrap());
+        assert!(!db.user_can_access_library(user.id, lib_kids.id).await.unwrap());
+
+        // Grant access to Kids only
+        db.grant_library_access(user.id, lib_kids.id).await.unwrap();
+        assert!(!db.user_can_access_library(user.id, lib_movies.id).await.unwrap());
+        assert!(db.user_can_access_library(user.id, lib_kids.id).await.unwrap());
+
+        assert_eq!(db.list_user_libraries(user.id).await.unwrap(), vec![lib_kids.id]);
+
+        // Revoke access
+        assert!(db.revoke_library_access(user.id, lib_kids.id).await.unwrap());
+        assert!(!db.user_can_access_library(user.id, lib_kids.id).await.unwrap());
     }
 }

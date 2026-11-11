@@ -15,27 +15,17 @@ pub struct Model {
     pub original_title: Option<String>,
     pub original_language: Option<String>,
     pub monitored: bool,
-    pub quality_profile_id: Option<Uuid>,
     pub metadata_json: DbEntityMetadata,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     #[sea_orm(belongs_to, from = "library_id", to = "id", on_delete = "Restrict")]
     pub library: BelongsTo<Option<super::library::Entity>>,
-    #[sea_orm(
-        belongs_to,
-        from = "quality_profile_id",
-        to = "id",
-        on_delete = "Restrict"
-    )]
-    pub quality_profile: BelongsTo<Option<super::quality_profile::Entity>>,
     #[sea_orm(has_one)]
     pub movie: HasOne<super::movie::Entity>,
     #[sea_orm(has_one)]
     pub collection: HasOne<super::collection::Entity>,
     #[sea_orm(has_many)]
     pub external_ids: HasMany<super::entity_external_id::Entity>,
-    #[sea_orm(has_many)]
-    pub tracked_releases: HasMany<super::tracked_release::Entity>,
     #[sea_orm(has_many, via = "entity_asset")]
     pub media_assets: HasMany<super::media_asset::Entity>,
 }

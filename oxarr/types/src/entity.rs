@@ -48,7 +48,6 @@ pub struct Entity {
     /// BCP-47 / ISO-639 language tag of the original work (e.g. `"en"`, `"ja"`, `"ko"`).
     pub original_language: Option<String>,
     pub monitored: bool,
-    pub quality_profile_id: Option<Uuid>,
     /// External provider -> identifier map (e.g. `{"tmdb": "603", "imdb": "tt0133093"}`).
     pub external_ids: BTreeMap<String, String>,
     pub metadata: EntityMetadata,

@@ -46,25 +46,3 @@ pub struct Classifier {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-
-/// Score or rejection action assigned to a `Classifier` within a `QualityProfile`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProfileClassifierScore {
-    pub classifier_id: Uuid,
-    pub score: i32,
-    #[serde(default)]
-    pub reject: bool,
-}
-
-/// Profile specifying acquisition thresholds and classifier score weights.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QualityProfile {
-    pub id: Uuid,
-    pub name: String,
-    pub upgrade_allowed: bool,
-    pub min_score: i32,
-    pub cutoff_score: i32,
-    pub classifier_scores: Vec<ProfileClassifierScore>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}

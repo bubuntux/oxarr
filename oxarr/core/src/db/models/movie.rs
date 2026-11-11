@@ -1,7 +1,5 @@
 use sea_orm::entity::prelude::*;
 
-use super::enums::DbMinimumAvailability;
-
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "movies")]
@@ -12,7 +10,6 @@ pub struct Model {
     pub in_cinemas_date: Option<Date>,
     pub digital_release_date: Option<Date>,
     pub physical_release_date: Option<Date>,
-    pub minimum_availability: DbMinimumAvailability,
     pub runtime_minutes: Option<i32>,
     pub certification: Option<String>,
     pub studio: Option<String>,
