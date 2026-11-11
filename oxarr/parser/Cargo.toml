@@ -5,7 +5,5 @@ edition.workspace = true
 license-file.workspace = true
 
 [dependencies]
-oxarr-types.workspace = true
-regex = "1.10"
+parse-torrent-title = "2"
 serde.workspace = true
-uuid.workspace = true
