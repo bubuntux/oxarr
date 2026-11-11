@@ -18,6 +18,7 @@
   packages = [
     pkgs.cargo-nextest
     pkgs.cargo-watch
+    pkgs.ffmpeg-headless
     pkgs.gh
     pkgs.sea-orm-cli
     pkgs.sqlite
