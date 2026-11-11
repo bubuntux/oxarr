@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="assets/icons/logo.svg" alt="oxarr logo" width="128" height="128">
-</p>
-
-# oxarr
+# <img src="assets/icons/logo.svg" alt="oxarr logo" width="36" height="36" valign="middle"> oxarr
 
 > High-performance, unified media acquisition and streaming daemon written in Rust.
 
