@@ -27,7 +27,17 @@
   # Local development database, shared by the db-* scripts and `cargo run -p oxarr-server`.
   env.DATABASE_URL = "sqlite://./oxarr.db?mode=rwc";
 
+  processes.server.exec = "cargo-watch -x 'run -p oxarr-server'";
+
   scripts = {
+    server-run = {
+      description = "Start the oxarr server daemon (auto-connects SQLite and runs migrations)";
+      exec = ''cargo run -p oxarr-server "$@"'';
+    };
+    server-watch = {
+      description = "Start the oxarr server in watch mode with live reload on changes";
+      exec = ''cargo-watch -x "run -p oxarr-server"'';
+    };
     db-up = {
       description = "Apply pending migrations (extra args: -n <count>)";
       exec = ''cargo run -q -p oxarr-migration --features cli -- up "$@"'';
@@ -61,8 +71,9 @@
 
   enterShell = ''
     echo "🦀 oxarr devenv ready"
-    echo "  rust: $(rustc --version 2>/dev/null || echo 'loading...')"
-    echo "  cargo: $(cargo --version 2>/dev/null || echo 'loading...')"
-    echo "  db:   db-up | db-down | db-status | db-fresh | db-new <name> | db-entities"
+    echo "  rust:   $(rustc --version 2>/dev/null || echo 'loading...')"
+    echo "  cargo:  $(cargo --version 2>/dev/null || echo 'loading...')"
+    echo "  server: server-run | server-watch | devenv up"
+    echo "  db:     db-up | db-down | db-status | db-fresh | db-new <name> | db-entities"
   '';
 }
