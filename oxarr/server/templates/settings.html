@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - oxarr{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+    <h1 style="font-size: 2rem; margin-bottom: 0.5rem;">System Settings</h1>
+    <p style="color: var(--text-secondary);">Manage users, library access permissions, and system themes</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 2rem;">
+    <!-- User Management Section -->
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <div>
+                <h2 style="font-size: 1.3rem;">User Accounts & Permissions</h2>
+                <p style="color: var(--text-secondary); font-size: 0.875rem;">Manage who can access and view your media libraries</p>
+            </div>
+            <button class="btn" onclick="document.getElementById('add-user-modal').style.display='flex'">+ Add User</button>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.875rem;">
+                    <th style="padding: 0.75rem 0.5rem;">Username</th>
+                    <th style="padding: 0.75rem 0.5rem;">Role</th>
+                    <th style="padding: 0.75rem 0.5rem;">Accessible Libraries</th>
+                    <th style="padding: 0.75rem 0.5rem; text-align: right;">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 1rem 0.5rem; font-weight: 600;">{{ u.username }}</td>
+                    <td style="padding: 1rem 0.5rem;">
+                        {% if u.is_admin %}
+                        <span class="badge" style="color: #f59e0b; border-color: #f59e0b;">Administrator</span>
+                        {% else %}
+                        <span class="badge">Standard User</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; color: var(--text-secondary); font-size: 0.875rem;">
+                        {% if u.is_admin %}
+                        All Libraries (Universal Access)
+                        {% else %}
+                        Configured in Library Grants
+                        {% endif %}
+                    </td>
+                    <td style="padding: 1rem 0.5rem; text-align: right; color: var(--text-secondary); font-size: 0.875rem;">
+                        {{ u.created_at }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Metadata Providers Section -->
+    <div class="card">
+        <h2 style="font-size: 1.3rem; margin-bottom: 0.5rem;">Metadata Providers</h2>
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">Aggregated providers for movie and TV show enrichment</p>
+        
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-primary); border-radius: 8px;">
+                <div>
+                    <strong>TMDB (The Movie Database)</strong>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Movies & Shows: Posters, cast, overviews, ratings</div>
+                </div>
+                <span class="badge" style="color: var(--success); border-color: var(--success);">Active</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-primary); border-radius: 8px;">
+                <div>
+                    <strong>TVMaze</strong>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">TV Shows: Zero-config fallback, episode guides</div>
+                </div>
+                <span class="badge" style="color: var(--success); border-color: var(--success);">Active</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-primary); border-radius: 8px;">
+                <div>
+                    <strong>OMDb / IMDb</strong>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">IMDb ratings, Rotten Tomatoes, Metacritic scores</div>
+                </div>
+                <span class="badge">Optional</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div id="add-user-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 50;">
+    <div class="card" style="width: 100%; max-width: 440px;">
+        <h2 style="margin-bottom: 1.5rem;">Create User Account</h2>
+        <form method="POST" action="/settings/users" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div>
+                <label style="display: block; font-size: 0.875rem; margin-bottom: 0.4rem; color: var(--text-secondary);">Username</label>
+                <input type="text" name="username" required placeholder="alice"
+                       style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
+            </div>
+            <div>
+                <label style="display: block; font-size: 0.875rem; margin-bottom: 0.4rem; color: var(--text-secondary);">Password</label>
+                <input type="password" name="password" required
+                       style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="is_admin" name="is_admin" value="true">
+                <label for="is_admin" style="font-size: 0.875rem;">Administrator (Access to all libraries & settings)</label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+                <button type="button" class="btn" style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color);"
+                        onclick="document.getElementById('add-user-modal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn">Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
