@@ -102,5 +102,6 @@ fn chronological_movie_key(entity: &Entity) -> (bool, u16, Option<chrono::NaiveD
             entity.title.as_str(),
         ),
         EntityDetails::Collection(_) => (true, u16::MAX, None, entity.title.as_str()),
+        EntityDetails::Series(_) => (true, u16::MAX, None, entity.title.as_str()),
     }
 }

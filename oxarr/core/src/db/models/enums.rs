@@ -10,6 +10,7 @@ use sea_orm::entity::prelude::*;
 pub enum DbEntityKind {
     Movie,
     Collection,
+    Series,
 }
 
 impl From<EntityKind> for DbEntityKind {
@@ -17,6 +18,7 @@ impl From<EntityKind> for DbEntityKind {
         match kind {
             EntityKind::Movie => Self::Movie,
             EntityKind::Collection => Self::Collection,
+            EntityKind::Series => Self::Series,
         }
     }
 }
@@ -26,6 +28,7 @@ impl From<DbEntityKind> for EntityKind {
         match db {
             DbEntityKind::Movie => Self::Movie,
             DbEntityKind::Collection => Self::Collection,
+            DbEntityKind::Series => Self::Series,
         }
     }
 }

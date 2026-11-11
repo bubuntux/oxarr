@@ -82,6 +82,9 @@ pub(super) async fn hydrate_entities<C: ConnectionTrait>(
                 })?;
                 EntityDetails::Collection(CollectionDetails {})
             }
+            DbEntityKind::Series => {
+                EntityDetails::Series(oxarr_types::SeriesDetails::default())
+            }
         };
 
         let external_ids: BTreeMap<String, String> = ext_rows
@@ -144,6 +147,7 @@ async fn insert_subtype_in_tx(
                 .await
                 .with_context(|| format!("failed to insert collection details for {entity_id}"))?;
         }
+        EntityDetails::Series(_s) => {}
     }
     Ok(())
 }
@@ -365,6 +369,7 @@ impl Database {
                 };
                 active_col.update(&tx).await?;
             }
+            EntityDetails::Series(_s) => {}
         }
 
         entity_external_id::Entity::delete_many()

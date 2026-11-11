@@ -6,11 +6,11 @@ pub mod quality;
 pub mod user;
 
 pub use asset::MediaAsset;
-pub use entity::{Entity, EntityDetails, EntityKind, EntityMetadata, Library};
+pub use entity::{Entity, EntityDetails, EntityKind, EntityMetadata, Library, SeriesDetails};
 pub use media::{CollectionDetails, MovieDetails};
 pub use provider::{
     CollectionMetadata, CollectionSummary, MovieMetadata, ProviderMediaMetadata, SearchQuery,
-    SearchResult,
+    SearchResult, SeriesMetadata,
 };
 pub use quality::{Classifier, ClassifierCondition};
 pub use user::User;
@@ -23,7 +23,7 @@ mod tests {
 
     #[test]
     fn entity_kind_json_round_trip() {
-        for kind in [EntityKind::Movie, EntityKind::Collection] {
+        for kind in [EntityKind::Movie, EntityKind::Collection, EntityKind::Series] {
             let encoded = serde_json::to_string(&kind).expect("serialize entity kind");
             let decoded: EntityKind =
                 serde_json::from_str(&encoded).expect("deserialize entity kind");
@@ -44,8 +44,13 @@ mod tests {
         });
 
         let collection = EntityDetails::Collection(CollectionDetails::default());
+        let series = EntityDetails::Series(SeriesDetails {
+            year: Some(2008),
+            status: Some("Ended".to_owned()),
+            network: Some("AMC".to_owned()),
+        });
 
-        for details in [movie, collection] {
+        for details in [movie, collection, series] {
             let json = serde_json::to_string(&details).expect("serialize EntityDetails");
             let decoded: EntityDetails =
                 serde_json::from_str(&json).expect("deserialize EntityDetails");

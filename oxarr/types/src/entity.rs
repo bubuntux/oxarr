@@ -11,6 +11,7 @@ use crate::media::{CollectionDetails, MovieDetails};
 pub enum EntityKind {
     Movie,
     Collection,
+    Series,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,11 +32,19 @@ pub struct EntityMetadata {
     pub genres: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SeriesDetails {
+    pub year: Option<u16>,
+    pub status: Option<String>,
+    pub network: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum EntityDetails {
     Movie(MovieDetails),
     Collection(CollectionDetails),
+    Series(SeriesDetails),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
