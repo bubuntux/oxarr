@@ -8,8 +8,12 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use chrono::Utc;
-use oxarr_core::{new_id, Database, LibraryScanner};
-use oxarr_types::{Entity, EntityDetails, EntityKind, Library, MovieDetails};
+use oxarr_core::{
+    new_id, Database, LibraryScanner, MetadataAggregator, TmdbProvider, TvMazeProvider,
+};
+use oxarr_types::{
+    Entity, EntityDetails, EntityKind, Library, MediaAsset, MovieDetails, SeriesDetails,
+};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -17,6 +21,7 @@ use uuid::Uuid;
 struct AppState {
     db: Database,
     scanner: Arc<LibraryScanner>,
+    aggregator: Arc<MetadataAggregator>,
 }
 
 fn render<T: Template>(template: T) -> Response {
@@ -27,6 +32,98 @@ fn render<T: Template>(template: T) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "Template error").into_response()
         }
     }
+}
+
+fn format_size(bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    if bytes as f64 >= GIB {
+        format!("{:.2} GB", (bytes as f64) / GIB)
+    } else {
+        format!("{:.1} MB", (bytes as f64) / MIB)
+    }
+}
+
+fn extract_streams(media_info: &serde_json::Value) -> Vec<StreamViewModel> {
+    let Some(streams_arr) = media_info.get("streams").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    streams_arr
+        .iter()
+        .enumerate()
+        .map(|(idx, stream)| {
+            let stream_type = stream
+                .get("codec_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let codec = stream
+                .get("codec_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let mut details = Vec::new();
+            if stream_type == "video" {
+                if let (Some(w), Some(h)) = (
+                    stream.get("width").and_then(|v| v.as_u64()),
+                    stream.get("height").and_then(|v| v.as_u64()),
+                ) {
+                    details.push(format!("{w}x{h}"));
+                }
+                if let Some(r_fps) = stream.get("r_frame_rate").and_then(|v| v.as_str()) {
+                    details.push(format!("{r_fps} fps"));
+                }
+                if let Some(pix) = stream.get("pix_fmt").and_then(|v| v.as_str()) {
+                    details.push(pix.to_string());
+                }
+            } else if stream_type == "audio" {
+                if let Some(channels) = stream.get("channels").and_then(|v| v.as_u64()) {
+                    let layout = match channels {
+                        8 => "7.1 surround".to_owned(),
+                        6 => "5.1 surround".to_owned(),
+                        2 => "Stereo".to_owned(),
+                        1 => "Mono".to_owned(),
+                        n => format!("{n} channels"),
+                    };
+                    details.push(layout);
+                }
+                if let Some(hz) = stream.get("sample_rate").and_then(|v| v.as_str()) {
+                    details.push(format!("{hz} Hz"));
+                }
+            }
+
+            if let Some(lang) = stream
+                .get("tags")
+                .and_then(|t| t.get("language"))
+                .and_then(|l| l.as_str())
+            {
+                details.push(format!("[{lang}]"));
+            }
+
+            if let Some(disp) = stream.get("disposition") {
+                if disp.get("forced").and_then(|v| v.as_i64()) == Some(1) {
+                    details.push("Forced".to_owned());
+                }
+                if disp.get("default").and_then(|v| v.as_i64()) == Some(1) {
+                    details.push("Default".to_owned());
+                }
+            }
+
+            StreamViewModel {
+                index: stream
+                    .get("index")
+                    .and_then(|v| v.as_u64())
+                    .map(|i| i as usize)
+                    .unwrap_or(idx),
+                stream_type,
+                codec,
+                details: details.join(" • "),
+            }
+        })
+        .collect()
 }
 
 #[derive(Template)]
@@ -52,11 +149,40 @@ struct MediaGridTemplate {
 }
 
 struct MediaItemViewModel {
+    id: Uuid,
     title: String,
     kind: &'static str,
     year_display: String,
     monitored: bool,
     metadata: oxarr_types::EntityMetadata,
+}
+
+#[derive(Template)]
+#[template(path = "media_detail.html")]
+struct MediaDetailTemplate {
+    current_nav: &'static str,
+    entity: Entity,
+    kind_label: &'static str,
+    year_display: String,
+    runtime_display: String,
+    assets: Vec<MediaAssetViewModel>,
+}
+
+#[allow(dead_code)]
+struct MediaAssetViewModel {
+    id: Uuid,
+    path: String,
+    size_formatted: String,
+    hash_xxh3: Option<String>,
+    imported_at: String,
+    streams: Vec<StreamViewModel>,
+}
+
+struct StreamViewModel {
+    index: usize,
+    stream_type: String,
+    codec: String,
+    details: String,
 }
 
 #[derive(Template)]
@@ -91,12 +217,20 @@ struct CreateUserForm {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://./oxarr.db?mode=rwc".to_owned());
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite://./oxarr.db?mode=rwc".to_owned());
     let db = Database::connect(&db_url).await?;
+
+    let mut aggregator = MetadataAggregator::new();
+    let tmdb_key = std::env::var("TMDB_API_KEY").ok();
+    aggregator.add_provider(Arc::new(TmdbProvider::new(tmdb_key)));
+    aggregator.add_provider(Arc::new(TvMazeProvider::new()));
+    let aggregator = Arc::new(aggregator);
 
     let state = AppState {
         db,
         scanner: Arc::new(LibraryScanner::default()),
+        aggregator,
     };
 
     let app = Router::new()
@@ -104,6 +238,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/libraries", get(list_libraries).post(create_library))
         .route("/libraries/{id}", get(view_library))
         .route("/libraries/{id}/scan", post(scan_library))
+        .route("/media/{id}", get(media_detail_page))
         .route("/settings", get(settings_page))
         .route("/settings/users", post(create_user))
         .with_state(state);
@@ -124,6 +259,7 @@ async fn list_libraries(State(state): State<AppState>) -> Response {
             let kind = match l.kind {
                 EntityKind::Movie => "Movie",
                 EntityKind::Collection => "Collection",
+                EntityKind::Series => "Series",
             };
             LibraryViewModel {
                 id: l.id,
@@ -146,6 +282,7 @@ async fn create_library(
 ) -> Response {
     let kind = match form.kind.as_str() {
         "collection" => EntityKind::Collection,
+        "series" => EntityKind::Series,
         _ => EntityKind::Movie,
     };
     let lib = Library {
@@ -160,32 +297,42 @@ async fn create_library(
     Redirect::to("/libraries").into_response()
 }
 
-async fn view_library(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Response {
-    let lib = state.db.get_library(id).await.ok().flatten().unwrap_or_else(|| Library {
-        id,
-        name: "Library".to_owned(),
-        kind: EntityKind::Movie,
-        root_path: "".to_owned(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    });
+async fn view_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
+    let lib = state
+        .db
+        .get_library(id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| Library {
+            id,
+            name: "Library".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "".to_owned(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
 
-    let entities = state.db.list_entities_in_library(id).await.unwrap_or_default();
+    let entities = state
+        .db
+        .list_entities_in_library(id)
+        .await
+        .unwrap_or_default();
     let items = entities
         .into_iter()
         .map(|e| {
             let year_display = match &e.details {
                 EntityDetails::Movie(m) => m.year.map(|y| y.to_string()).unwrap_or_default(),
+                EntityDetails::Series(s) => s.year.map(|y| y.to_string()).unwrap_or_default(),
                 _ => "".to_owned(),
             };
             let kind = match e.kind {
                 EntityKind::Movie => "Movie",
                 EntityKind::Collection => "Collection",
+                EntityKind::Series => "Series",
             };
             MediaItemViewModel {
+                id: e.id,
                 title: e.title,
                 kind,
                 year_display,
@@ -202,43 +349,138 @@ async fn view_library(
     })
 }
 
-async fn scan_library(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Response {
+async fn media_detail_page(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
+    let Ok(Some(entity)) = state.db.get_entity(id).await else {
+        return (StatusCode::NOT_FOUND, "Media title not found").into_response();
+    };
+
+    let kind_label = match entity.kind {
+        EntityKind::Movie => "Movie",
+        EntityKind::Collection => "Collection",
+        EntityKind::Series => "Series",
+    };
+
+    let (year_display, runtime_display) = match &entity.details {
+        EntityDetails::Movie(m) => (
+            m.year.map(|y| y.to_string()).unwrap_or_default(),
+            m.runtime_minutes.map(|r| format!("{r}m")).unwrap_or_default(),
+        ),
+        EntityDetails::Series(s) => (
+            s.year.map(|y| y.to_string()).unwrap_or_default(),
+            s.status.clone().unwrap_or_default(),
+        ),
+        EntityDetails::Collection(_) => ("".to_owned(), "".to_owned()),
+    };
+
+    let db_assets = state
+        .db
+        .list_entity_media_assets(id)
+        .await
+        .unwrap_or_default();
+    let assets = db_assets
+        .into_iter()
+        .map(|a| {
+            let streams = extract_streams(&a.media_info);
+            MediaAssetViewModel {
+                id: a.id,
+                path: a.path,
+                size_formatted: format_size(a.size_bytes),
+                hash_xxh3: a.hash_xxh3,
+                imported_at: a.imported_at.format("%Y-%m-%d %H:%M").to_string(),
+                streams,
+            }
+        })
+        .collect();
+
+    render(MediaDetailTemplate {
+        current_nav: "libraries",
+        entity,
+        kind_label,
+        year_display,
+        runtime_display,
+        assets,
+    })
+}
+
+async fn scan_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
     let Ok(Some(lib)) = state.db.get_library(id).await else {
-        return Html("<button class='btn'>Scan Failed (Not Found)</button>".to_owned()).into_response();
+        return Html("<button class='btn'>Scan Failed (Not Found)</button>".to_owned())
+            .into_response();
     };
 
     let mut stream = state.scanner.scan_directory(&lib.root_path);
     let db = state.db.clone();
+    let aggregator = state.aggregator.clone();
+    let lib_kind = lib.kind;
 
     tokio::spawn(async move {
         while let Some(scanned) = stream.recv().await {
             let entity_id = new_id();
+
+            let mut metadata = oxarr_types::EntityMetadata::default();
+            let mut external_ids = std::collections::BTreeMap::new();
+            if let Ok(Some(agg)) = aggregator
+                .resolve_and_aggregate(&scanned.parsed.title, scanned.parsed.year, lib_kind)
+                .await
+            {
+                metadata.overview = agg.overview().map(str::to_owned);
+                metadata.poster_url = agg.poster_url().map(str::to_owned);
+                metadata.backdrop_url = agg.backdrop_url().map(str::to_owned);
+                metadata.genres = agg.genres().to_vec();
+                external_ids = agg.external_ids().clone();
+            }
+
+            let details = match lib_kind {
+                EntityKind::Movie => EntityDetails::Movie(MovieDetails {
+                    year: scanned.parsed.year,
+                    ..Default::default()
+                }),
+                EntityKind::Series => EntityDetails::Series(SeriesDetails {
+                    year: scanned.parsed.year,
+                    ..Default::default()
+                }),
+                EntityKind::Collection => {
+                    EntityDetails::Collection(oxarr_types::CollectionDetails::default())
+                }
+            };
+
             let entity = Entity {
                 id: entity_id,
-                kind: EntityKind::Movie,
+                kind: lib_kind,
                 library_id: Some(id),
                 title: scanned.parsed.title,
                 original_title: None,
                 original_language: None,
                 monitored: true,
-                external_ids: std::collections::BTreeMap::new(),
-                metadata: oxarr_types::EntityMetadata::default(),
-                details: EntityDetails::Movie(MovieDetails {
-                    year: scanned.parsed.year,
-                    ..Default::default()
-                }),
+                external_ids,
+                metadata,
+                details,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
 
-            let _ = db.insert_entity(&entity).await;
+            if db.insert_entity(&entity).await.is_ok() {
+                let asset = MediaAsset {
+                    id: new_id(),
+                    entity_ids: vec![entity_id],
+                    path: scanned.path.to_string_lossy().to_string(),
+                    size_bytes: scanned.size_bytes,
+                    hash_xxh3: scanned.hash_xxh3,
+                    matched_classifier_ids: Vec::new(),
+                    quality_score: None,
+                    media_info: serde_json::to_value(&scanned.probe).unwrap_or_default(),
+                    imported_at: Utc::now(),
+                };
+                let _ = db.insert_media_asset(&asset).await;
+            }
         }
     });
 
-    Html("<span class='badge' style='color: var(--success); border-color: var(--success);'>Scanning in background...</span>".to_owned()).into_response()
+    Html(
+        "<span class='badge' style='color: var(--success); border-color: var(--success);'>Scanning in background...</span>"
+            .to_owned(),
+    )
+    .into_response()
 }
 
 async fn settings_page(State(state): State<AppState>) -> Response {
@@ -265,7 +507,13 @@ async fn create_user(
     let password_hash = format!("sha256_{}", form.password);
     let _ = state
         .db
-        .insert_user(new_id(), &form.username, &password_hash, form.is_admin, Utc::now())
+        .insert_user(
+            new_id(),
+            &form.username,
+            &password_hash,
+            form.is_admin,
+            Utc::now(),
+        )
         .await;
 
     Redirect::to("/settings").into_response()

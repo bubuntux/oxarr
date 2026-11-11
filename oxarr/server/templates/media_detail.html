@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}{{ entity.title }} - oxarr{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+    {% if let Some(lib_id) = entity.library_id %}
+    <a href="/libraries/{{ lib_id }}" style="color: var(--text-secondary); text-decoration: none; font-size: 0.875rem;">&larr; Back to Library</a>
+    {% else %}
+    <a href="/libraries" style="color: var(--text-secondary); text-decoration: none; font-size: 0.875rem;">&larr; Back to Libraries</a>
+    {% endif %}
+</div>
+
+<!-- Media Hero Header -->
+<div class="card" style="position: relative; overflow: hidden; padding: 0; margin-bottom: 2rem;">
+    {% if let Some(backdrop) = entity.metadata.backdrop_url %}
+    <div style="position: absolute; inset: 0; background-image: url('{{ backdrop }}'); background-size: cover; background-position: center; opacity: 0.15; filter: blur(2px);"></div>
+    {% endif %}
+
+    <div style="position: relative; z-index: 10; display: flex; flex-direction: row; gap: 2rem; padding: 2rem; flex-wrap: wrap;">
+        <!-- Poster -->
+        <div style="width: 220px; flex-shrink: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.5); background: var(--bg-card); display: flex; align-items: center; justify-content: center;">
+            {% if let Some(poster) = entity.metadata.poster_url %}
+            <img src="{{ poster }}" alt="{{ entity.title }}" style="width: 100%; height: auto; display: block; object-fit: cover;">
+            {% else %}
+            <span style="font-size: 4rem; color: var(--text-secondary); padding: 4rem 0;">🎬</span>
+            {% endif %}
+        </div>
+
+        <!-- Metadata & Synopsis -->
+        <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
+                    <span class="badge" style="background: var(--accent); color: white; border: none;">{{ kind_label }}</span>
+                    {% if !year_display.is_empty() %}
+                    <span style="color: var(--text-secondary); font-size: 1.1rem; font-weight: 500;">{{ year_display }}</span>
+                    {% endif %}
+                    {% if !runtime_display.is_empty() %}
+                    <span style="color: var(--text-secondary); font-size: 0.95rem;">• {{ runtime_display }}</span>
+                    {% endif %}
+                </div>
+
+                <h1 style="font-size: 2.5rem; margin-bottom: 0.25rem; line-height: 1.2;">{{ entity.title }}</h1>
+                {% if let Some(orig) = entity.original_title %}
+                <p style="color: var(--text-secondary); font-style: italic; margin-bottom: 1rem;">Original: {{ orig }}</p>
+                {% endif %}
+
+                <!-- Genres -->
+                {% if !entity.metadata.genres.is_empty() %}
+                <div style="display: flex; gap: 0.4rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                    {% for genre in entity.metadata.genres %}
+                    <span class="badge" style="background: var(--bg-secondary); border-color: var(--border-color);">{{ genre }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- External IDs -->
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                    {% for (provider, ext_id) in entity.external_ids %}
+                    {% if provider == "imdb" %}
+                    <a href="https://www.imdb.com/title/{{ ext_id }}" target="_blank" class="badge" style="text-decoration: none; background: #f5c518; color: #000; font-weight: bold; border: none;">IMDb: {{ ext_id }} ↗</a>
+                    {% else if provider == "tmdb" %}
+                    <a href="https://www.themoviedb.org/movie/{{ ext_id }}" target="_blank" class="badge" style="text-decoration: none; background: #01b4e4; color: #fff; font-weight: bold; border: none;">TMDB: {{ ext_id }} ↗</a>
+                    {% else if provider == "tvmaze" %}
+                    <a href="https://www.tvmaze.com/shows/{{ ext_id }}" target="_blank" class="badge" style="text-decoration: none; background: #3c948b; color: #fff; font-weight: bold; border: none;">TVMaze: {{ ext_id }} ↗</a>
+                    {% else %}
+                    <span class="badge">{{ provider }}: {{ ext_id }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- Overview -->
+                {% if let Some(overview) = entity.metadata.overview %}
+                <p style="color: var(--text-primary); font-size: 1rem; line-height: 1.6; max-width: 800px;">
+                    {{ overview }}
+                </p>
+                {% else %}
+                <p style="color: var(--text-secondary); font-style: italic;">No synopsis available.</p>
+                {% endif %}
+            </div>
+
+            <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+                <span class="badge" style="color: var(--success); border-color: var(--success);">
+                    {% if entity.monitored %}● Monitored{% else %}○ Unmonitored{% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Files & Stream Inspection -->
+<h2 style="font-size: 1.5rem; margin-bottom: 1rem;">Media Assets & Streams ({{ assets.len() }})</h2>
+
+{% if assets.is_empty() %}
+<div class="card" style="text-align: center; padding: 2rem;">
+    <p style="color: var(--text-secondary);">No media files linked to this catalog record yet.</p>
+</div>
+{% endif %}
+
+{% for asset in assets %}
+<div class="card" style="margin-bottom: 1.5rem;">
+    <!-- Asset File Header -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+            <span style="font-size: 1.1rem; font-weight: 600; word-break: break-all;">📁 {{ asset.path }}</span>
+            <div style="display: flex; gap: 0.75rem; color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.35rem; align-items: center; flex-wrap: wrap;">
+                <span>Size: {{ asset.size_formatted }}</span>
+                <span>• Imported: {{ asset.imported_at }}</span>
+                {% if let Some(hash) = asset.hash_xxh3 %}
+                <span class="badge" style="font-family: monospace; background: var(--bg-secondary);">XXH3: {{ hash }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Technical Streams Table -->
+    {% if !asset.streams.is_empty() %}
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem; text-align: left;">
+            <thead>
+                <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary);">
+                    <th style="padding: 0.5rem 0.75rem;">Type</th>
+                    <th style="padding: 0.5rem 0.75rem;">Codec</th>
+                    <th style="padding: 0.5rem 0.75rem;">Stream Details & Specifications</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stream in asset.streams %}
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <td style="padding: 0.6rem 0.75rem; white-space: nowrap;">
+                        {% if stream.stream_type == "video" %}
+                        <span class="badge" style="background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: none;">🎥 Video #{{ stream.index }}</span>
+                        {% else if stream.stream_type == "audio" %}
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: none;">🔊 Audio #{{ stream.index }}</span>
+                        {% else if stream.stream_type == "subtitle" %}
+                        <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: none;">💬 Subtitle #{{ stream.index }}</span>
+                        {% else %}
+                        <span class="badge">Stream #{{ stream.index }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 0.6rem 0.75rem; font-weight: 600; text-transform: uppercase;">
+                        {{ stream.codec }}
+                    </td>
+                    <td style="padding: 0.6rem 0.75rem; color: var(--text-secondary);">
+                        {{ stream.details }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">Stream metadata not yet probed for this file.</p>
+    {% endif %}
+</div>
+{% endfor %}
+
+{% endblock %}
