@@ -26,6 +26,8 @@
 
   # Local development database, shared by the db-* scripts and `cargo run -p oxarr-server`.
   env.DATABASE_URL = "sqlite://./oxarr.db?mode=rwc";
+  env.RUST_LOG = "oxarr=debug,tower_http=debug,info";
+  env.PORT = "8080";
 
   processes.server.exec = "cargo-watch -x 'run -p oxarr-server'";
 
@@ -74,6 +76,7 @@
     echo "  rust:   $(rustc --version 2>/dev/null || echo 'loading...')"
     echo "  cargo:  $(cargo --version 2>/dev/null || echo 'loading...')"
     echo "  server: server-run | server-watch | devenv up"
+    echo "  url:    http://localhost:''${PORT:-8080}"
     echo "  db:     db-up | db-down | db-status | db-fresh | db-new <name> | db-entities"
   '';
 }

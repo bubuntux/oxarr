@@ -1,6 +1,7 @@
 pub mod ui;
 
-use std::net::SocketAddr;
+use std::io::IsTerminal;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use axum::extract::{Form, Path, Query, State};
@@ -17,6 +18,8 @@ use oxarr_types::{
     Entity, EntityDetails, EntityKind, Library, MediaAsset, MovieDetails, SeriesDetails,
 };
 use serde::Deserialize;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -49,7 +52,17 @@ struct SearchQueryParams {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    let use_ansi = should_use_ansi();
+
+    tracing_subscriber::fmt()
+        .compact()
+        .with_target(false)
+        .with_ansi(use_ansi)
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("oxarr=debug,tower_http=debug,info")),
+        )
+        .init();
 
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://./oxarr.db?mode=rwc".to_owned());
@@ -76,11 +89,37 @@ async fn main() -> anyhow::Result<()> {
         .route("/media/{id}", get(media_detail_page))
         .route("/settings", get(settings_page))
         .route("/settings/users", post(create_user))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    tracing::info!("🦀 oxarr daemon running on http://{addr}");
+    let host: IpAddr = std::env::var("OXARR_HOST")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "0.0.0.0".to_string())
+        .parse()
+        .unwrap_or_else(|_| IpAddr::from([0, 0, 0, 0]));
+
+    let port: u16 = std::env::var("OXARR_PORT")
+        .or_else(|_| std::env::var("PORT"))
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+
+    let addr = SocketAddr::new(host, port);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+
+    eprintln!();
+    eprintln!("  🦀 oxarr server ready");
+    if bound_addr.ip().is_unspecified() {
+        eprintln!("  ➜  Local:    http://localhost:{}/", bound_addr.port());
+        eprintln!("  ➜  Network:  http://{bound_addr}/");
+    } else {
+        eprintln!("  ➜  Ready at: http://{bound_addr}/");
+    }
+    eprintln!("  ➜  Database: {db_url}");
+    eprintln!();
+
+    tracing::info!("oxarr daemon running on http://{bound_addr}");
     axum::serve(listener, app).await?;
 
     Ok(())
@@ -274,4 +313,19 @@ async fn create_user(
         .await;
 
     Redirect::to("/settings").into_response()
+}
+
+fn should_use_ansi() -> bool {
+    if std::env::var("NO_COLOR").is_ok() {
+        return false;
+    }
+    if let Ok(force) = std::env::var("CLICOLOR_FORCE") {
+        return force != "0";
+    }
+    if let Ok(clicolor) = std::env::var("CLICOLOR") {
+        if clicolor == "0" {
+            return false;
+        }
+    }
+    std::io::stderr().is_terminal()
 }
