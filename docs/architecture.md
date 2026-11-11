@@ -17,7 +17,7 @@ Oxarr is a unified, high-performance media cataloging, inspection, and streaming
    - **Canonical Key Linking:** External IDs (`imdb`, `tmdb`, `tvmaze`) resolved across services for unambiguous entity unification and priority fallbacks.
 5. **Multi-User RBAC & Hypermedia UI:**
    - **Access Control:** User accounts with admin flags and library-level grant mappings (`user_libraries`).
-   - **Management Dashboard:** Zero-JS-build management dashboard rendered on the server (`axum` + `askama` + `htmx`), paired with a Jellyfin-compatible API surface so existing TV, mobile, and desktop media players work out of the box.
+   - **Management Dashboard:** Zero-JS-build management dashboard rendered on the server (`axum` + `maud` + `htmx`), paired with a Jellyfin-compatible API surface so existing TV, mobile, and desktop media players work out of the box.
 
 ---
 
@@ -33,7 +33,7 @@ flowchart LR
     Providers["Metadata Providers (TMDB, TVMaze, etc.)"] --> Aggregator
     Aggregator --> DB["oxarr-core (SQLite WAL / SeaORM Catalog)"]
     DB <--> Server["oxarr-server (Axum HTTP & RBAC)"]
-    Server --> UI["Management WebUI (Askama + htmx)"]
+    Server --> UI["Management WebUI (Maud + htmx)"]
     Server --> JF["Jellyfin Compatibility API (Direct Play / HLS)"]
 ```
 
@@ -72,5 +72,5 @@ oxarr/
 | **Filesystem Watcher** | `notify` + `notify-debouncer-mini` | Low-latency inotify/kqueue/FSEvents detection with debounced quiet windows. |
 | **Web Server** | `axum` + `tower` | Modular, ergonomic async HTTP framework. |
 | **Plugin Sandbox** | `extism` (Wasmtime) | Polyglot support, memory-safe sandboxing, network whitelisting. |
-| **Web UI** | `askama` + `htmx` | Single self-contained binary, microsecond render times, zero npm bloat. |
+| **Web UI** | `maud` + `htmx` | Pure Rust compile-time HTML macro, zero templates/HTML files, microsecond render times, zero npm bloat. |
 | **Environment** | `devenv` | Reproducible development shell with pinned Rust and targets. |

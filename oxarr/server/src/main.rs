@@ -1,13 +1,15 @@
+pub mod ui;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use askama::Template;
-use axum::extract::{Form, Path, State};
+use axum::extract::{Form, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use chrono::Utc;
+use maud::Markup;
 use oxarr_core::{
     new_id, Database, LibraryScanner, MetadataAggregator, TmdbProvider, TvMazeProvider,
 };
@@ -24,181 +26,6 @@ struct AppState {
     aggregator: Arc<MetadataAggregator>,
 }
 
-fn render<T: Template>(template: T) -> Response {
-    match template.render() {
-        Ok(html) => Html(html).into_response(),
-        Err(err) => {
-            tracing::error!(error = %err, "template rendering error");
-            (StatusCode::INTERNAL_SERVER_ERROR, "Template error").into_response()
-        }
-    }
-}
-
-fn format_size(bytes: u64) -> String {
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
-    if bytes as f64 >= GIB {
-        format!("{:.2} GB", (bytes as f64) / GIB)
-    } else {
-        format!("{:.1} MB", (bytes as f64) / MIB)
-    }
-}
-
-fn extract_streams(media_info: &serde_json::Value) -> Vec<StreamViewModel> {
-    let Some(streams_arr) = media_info.get("streams").and_then(|v| v.as_array()) else {
-        return Vec::new();
-    };
-
-    streams_arr
-        .iter()
-        .enumerate()
-        .map(|(idx, stream)| {
-            let stream_type = stream
-                .get("codec_type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            let codec = stream
-                .get("codec_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            let mut details = Vec::new();
-            if stream_type == "video" {
-                if let (Some(w), Some(h)) = (
-                    stream.get("width").and_then(|v| v.as_u64()),
-                    stream.get("height").and_then(|v| v.as_u64()),
-                ) {
-                    details.push(format!("{w}x{h}"));
-                }
-                if let Some(r_fps) = stream.get("r_frame_rate").and_then(|v| v.as_str()) {
-                    details.push(format!("{r_fps} fps"));
-                }
-                if let Some(pix) = stream.get("pix_fmt").and_then(|v| v.as_str()) {
-                    details.push(pix.to_string());
-                }
-            } else if stream_type == "audio" {
-                if let Some(channels) = stream.get("channels").and_then(|v| v.as_u64()) {
-                    let layout = match channels {
-                        8 => "7.1 surround".to_owned(),
-                        6 => "5.1 surround".to_owned(),
-                        2 => "Stereo".to_owned(),
-                        1 => "Mono".to_owned(),
-                        n => format!("{n} channels"),
-                    };
-                    details.push(layout);
-                }
-                if let Some(hz) = stream.get("sample_rate").and_then(|v| v.as_str()) {
-                    details.push(format!("{hz} Hz"));
-                }
-            }
-
-            if let Some(lang) = stream
-                .get("tags")
-                .and_then(|t| t.get("language"))
-                .and_then(|l| l.as_str())
-            {
-                details.push(format!("[{lang}]"));
-            }
-
-            if let Some(disp) = stream.get("disposition") {
-                if disp.get("forced").and_then(|v| v.as_i64()) == Some(1) {
-                    details.push("Forced".to_owned());
-                }
-                if disp.get("default").and_then(|v| v.as_i64()) == Some(1) {
-                    details.push("Default".to_owned());
-                }
-            }
-
-            StreamViewModel {
-                index: stream
-                    .get("index")
-                    .and_then(|v| v.as_u64())
-                    .map(|i| i as usize)
-                    .unwrap_or(idx),
-                stream_type,
-                codec,
-                details: details.join(" • "),
-            }
-        })
-        .collect()
-}
-
-#[derive(Template)]
-#[template(path = "libraries.html")]
-struct LibrariesTemplate {
-    current_nav: &'static str,
-    libraries: Vec<LibraryViewModel>,
-    available_kinds: &'static [EntityKind],
-}
-
-struct LibraryViewModel {
-    id: Uuid,
-    name: String,
-    kind: &'static str,
-    root_path: String,
-}
-
-#[derive(Template)]
-#[template(path = "media_grid.html")]
-struct MediaGridTemplate {
-    current_nav: &'static str,
-    library: Library,
-    items: Vec<MediaItemViewModel>,
-}
-
-struct MediaItemViewModel {
-    id: Uuid,
-    title: String,
-    kind: &'static str,
-    year_display: String,
-    monitored: bool,
-    metadata: oxarr_types::EntityMetadata,
-}
-
-#[derive(Template)]
-#[template(path = "media_detail.html")]
-struct MediaDetailTemplate {
-    current_nav: &'static str,
-    entity: Entity,
-    kind_label: &'static str,
-    year_display: String,
-    runtime_display: String,
-    assets: Vec<MediaAssetViewModel>,
-}
-
-#[allow(dead_code)]
-struct MediaAssetViewModel {
-    id: Uuid,
-    path: String,
-    size_formatted: String,
-    hash_xxh3: Option<String>,
-    imported_at: String,
-    streams: Vec<StreamViewModel>,
-}
-
-struct StreamViewModel {
-    index: usize,
-    stream_type: String,
-    codec: String,
-    details: String,
-}
-
-#[derive(Template)]
-#[template(path = "settings.html")]
-struct SettingsTemplate {
-    current_nav: &'static str,
-    users: Vec<UserViewModel>,
-}
-
-struct UserViewModel {
-    username: String,
-    is_admin: bool,
-    created_at: String,
-}
-
 #[derive(Deserialize)]
 struct CreateLibraryForm {
     name: String,
@@ -212,6 +39,12 @@ struct CreateUserForm {
     password: String,
     #[serde(default)]
     is_admin: bool,
+}
+
+#[derive(Deserialize)]
+struct SearchQueryParams {
+    #[serde(default)]
+    q: String,
 }
 
 #[tokio::main]
@@ -238,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(|| async { Redirect::to("/libraries") }))
         .route("/libraries", get(list_libraries).post(create_library))
         .route("/libraries/{id}", get(view_library))
+        .route("/libraries/{id}/search", get(search_library_media))
         .route("/libraries/{id}/scan", post(scan_library))
         .route("/media/{id}", get(media_detail_page))
         .route("/settings", get(settings_page))
@@ -252,30 +86,9 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn list_libraries(State(state): State<AppState>) -> Response {
+async fn list_libraries(State(state): State<AppState>) -> Markup {
     let libs = state.db.list_libraries().await.unwrap_or_default();
-    let view_models = libs
-        .into_iter()
-        .map(|l| {
-            let kind = match l.kind {
-                EntityKind::Movie => "Movie",
-                EntityKind::Collection => "Collection",
-                EntityKind::Series => "Series",
-            };
-            LibraryViewModel {
-                id: l.id,
-                name: l.name,
-                kind,
-                root_path: l.root_path,
-            }
-        })
-        .collect();
-
-    render(LibrariesTemplate {
-        current_nav: "libraries",
-        libraries: view_models,
-        available_kinds: EntityKind::LIBRARY_KINDS,
-    })
+    ui::libraries_page(&libs)
 }
 
 async fn create_library(
@@ -295,7 +108,7 @@ async fn create_library(
     Redirect::to("/libraries").into_response()
 }
 
-async fn view_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
+async fn view_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Markup {
     let lib = state
         .db
         .get_library(id)
@@ -316,35 +129,32 @@ async fn view_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Re
         .list_entities_in_library(id)
         .await
         .unwrap_or_default();
-    let items = entities
-        .into_iter()
-        .map(|e| {
-            let year_display = match &e.details {
-                EntityDetails::Movie(m) => m.year.map(|y| y.to_string()).unwrap_or_default(),
-                EntityDetails::Series(s) => s.year.map(|y| y.to_string()).unwrap_or_default(),
-                _ => "".to_owned(),
-            };
-            let kind = match e.kind {
-                EntityKind::Movie => "Movie",
-                EntityKind::Collection => "Collection",
-                EntityKind::Series => "Series",
-            };
-            MediaItemViewModel {
-                id: e.id,
-                title: e.title,
-                kind,
-                year_display,
-                monitored: e.monitored,
-                metadata: e.metadata,
-            }
-        })
-        .collect();
 
-    render(MediaGridTemplate {
-        current_nav: "libraries",
-        library: lib,
-        items,
-    })
+    ui::library_media_page(&lib, &entities)
+}
+
+async fn search_library_media(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<SearchQueryParams>,
+) -> Markup {
+    let entities = state
+        .db
+        .list_entities_in_library(id)
+        .await
+        .unwrap_or_default();
+
+    let query = params.q.trim().to_lowercase();
+    let filtered: Vec<Entity> = if query.is_empty() {
+        entities
+    } else {
+        entities
+            .into_iter()
+            .filter(|e| e.title.to_lowercase().contains(&query))
+            .collect()
+    };
+
+    ui::media_cards(&filtered)
 }
 
 async fn media_detail_page(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
@@ -352,52 +162,13 @@ async fn media_detail_page(State(state): State<AppState>, Path(id): Path<Uuid>) 
         return (StatusCode::NOT_FOUND, "Media title not found").into_response();
     };
 
-    let kind_label = match entity.kind {
-        EntityKind::Movie => "Movie",
-        EntityKind::Collection => "Collection",
-        EntityKind::Series => "Series",
-    };
-
-    let (year_display, runtime_display) = match &entity.details {
-        EntityDetails::Movie(m) => (
-            m.year.map(|y| y.to_string()).unwrap_or_default(),
-            m.runtime_minutes.map(|r| format!("{r}m")).unwrap_or_default(),
-        ),
-        EntityDetails::Series(s) => (
-            s.year.map(|y| y.to_string()).unwrap_or_default(),
-            s.status.clone().unwrap_or_default(),
-        ),
-        EntityDetails::Collection(_) => ("".to_owned(), "".to_owned()),
-    };
-
-    let db_assets = state
+    let assets = state
         .db
         .list_entity_media_assets(id)
         .await
         .unwrap_or_default();
-    let assets = db_assets
-        .into_iter()
-        .map(|a| {
-            let streams = extract_streams(&a.media_info);
-            MediaAssetViewModel {
-                id: a.id,
-                path: a.path,
-                size_formatted: format_size(a.size_bytes),
-                hash_xxh3: a.hash_xxh3,
-                imported_at: a.imported_at.format("%Y-%m-%d %H:%M").to_string(),
-                streams,
-            }
-        })
-        .collect();
 
-    render(MediaDetailTemplate {
-        current_nav: "libraries",
-        entity,
-        kind_label,
-        year_display,
-        runtime_display,
-        assets,
-    })
+    ui::media_detail_page(&entity, &assets).into_response()
 }
 
 async fn scan_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
@@ -481,21 +252,9 @@ async fn scan_library(State(state): State<AppState>, Path(id): Path<Uuid>) -> Re
     .into_response()
 }
 
-async fn settings_page(State(state): State<AppState>) -> Response {
-    let db_users = state.db.list_users().await.unwrap_or_default();
-    let users = db_users
-        .into_iter()
-        .map(|u| UserViewModel {
-            username: u.username,
-            is_admin: u.is_admin,
-            created_at: u.created_at.format("%Y-%m-%d").to_string(),
-        })
-        .collect();
-
-    render(SettingsTemplate {
-        current_nav: "settings",
-        users,
-    })
+async fn settings_page(State(state): State<AppState>) -> Markup {
+    let users = state.db.list_users().await.unwrap_or_default();
+    ui::settings_page(&users)
 }
 
 async fn create_user(

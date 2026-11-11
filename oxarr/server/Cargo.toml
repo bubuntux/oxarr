@@ -9,7 +9,6 @@ oxarr-types.workspace = true
 oxarr-core = { path = "../core" }
 oxarr-parser = { path = "../parser" }
 anyhow.workspace = true
-askama = "0.12"
 axum = "0.8"
 chrono.workspace = true
 serde.workspace = true
@@ -19,3 +18,4 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { workspace = true, features = ["v7"] }
+maud = { version = "0.27.0", features = ["axum"] }
