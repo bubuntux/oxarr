@@ -281,7 +281,6 @@ async fn create_library(
     Form(form): Form<CreateLibraryForm>,
 ) -> Response {
     let kind = match form.kind.as_str() {
-        "collection" => EntityKind::Collection,
         "series" => EntityKind::Series,
         _ => EntityKind::Movie,
     };
