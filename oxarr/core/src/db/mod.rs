@@ -322,6 +322,7 @@ mod tests {
             entity_ids: vec![matrix_1_id, matrix_2_id],
             path: "/media/movies/The Matrix Double Feature.mkv".to_owned(),
             size_bytes: 42_000_000_000,
+            hash_xxh3: Some("0123456789abcdef".to_owned()),
             matched_classifier_ids: vec![classifier_2160p.id],
             quality_score: Some(5500),
             media_info: json!({ "duration_secs": 16440, "container": "mkv", "video_codec": "hevc" }),

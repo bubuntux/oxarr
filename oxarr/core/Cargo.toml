@@ -32,6 +32,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = "0.1"
 uuid = { workspace = true, features = ["v7"] }
 walkdir = "2"
+xxhash-rust = { version = "0.8.19", features = ["xxh3", "xxh64"] }
 
 [dev-dependencies]
 tempfile = "3.0"

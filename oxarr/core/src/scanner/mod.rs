@@ -20,6 +20,7 @@ pub const MEDIA_EXTENSIONS: &[&str] = &[
 pub struct ScannedMediaFile {
     pub path: PathBuf,
     pub size_bytes: u64,
+    pub hash_xxh3: Option<String>,
     pub parsed: ParsedMediaInfo,
     pub probe: Option<FfprobeOutput>,
 }
@@ -46,7 +47,26 @@ pub fn discover_media_files(root_dir: impl AsRef<Path>) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Inspects a single media file: parses filename tokens and probes streams via ffprobe.
+/// Computes a 64-bit XXH3 hex checksum of a file by streaming in 64 KiB chunks.
+pub async fn compute_xxh3(path: impl AsRef<Path>) -> Result<String> {
+    use tokio::io::AsyncReadExt;
+    let path = path.as_ref();
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .with_context(|| format!("failed to open file for hashing {}", path.display()))?;
+    let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:016x}", hasher.digest()))
+}
+
+/// Inspects a single media file: parses filename tokens, computes XXH3 hash, and probes streams via ffprobe.
 pub async fn inspect_file(path: impl AsRef<Path>) -> Result<ScannedMediaFile> {
     let path = path.as_ref().to_path_buf();
     let metadata = tokio::fs::metadata(&path)
@@ -59,6 +79,13 @@ pub async fn inspect_file(path: impl AsRef<Path>) -> Result<ScannedMediaFile> {
         .unwrap_or_default();
 
     let parsed = oxarr_parser::parse(file_name);
+    let hash_xxh3 = match compute_xxh3(&path).await {
+        Ok(hash) => Some(hash),
+        Err(err) => {
+            tracing::warn!(path = %path.display(), error = %err, "failed to compute xxh3 hash");
+            None
+        }
+    };
     let probe = match oxarr_probe::probe(&path).await {
         Ok(output) => Some(output),
         Err(ProbeError::ExecutionFailed { ref stderr, .. }) => {
@@ -74,6 +101,7 @@ pub async fn inspect_file(path: impl AsRef<Path>) -> Result<ScannedMediaFile> {
     Ok(ScannedMediaFile {
         path,
         size_bytes: metadata.len(),
+        hash_xxh3,
         parsed,
         probe,
     })
@@ -141,5 +169,18 @@ mod tests {
         assert!(is_media_file(Path::new("movie.MP4")));
         assert!(!is_media_file(Path::new("movie.nfo")));
         assert!(!is_media_file(Path::new("sample.txt")));
+    }
+
+    #[tokio::test]
+    async fn computes_xxh3_checksum() {
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+
+        let mut file = NamedTempFile::new().expect("temp file");
+        file.write_all(b"oxarr media test content").expect("write test content");
+        file.flush().expect("flush");
+
+        let hash = compute_xxh3(file.path()).await.expect("hash computed");
+        assert_eq!(hash.len(), 16); // 64-bit hex
     }
 }

@@ -9,6 +9,8 @@ pub struct MediaAsset {
     pub entity_ids: Vec<Uuid>,
     pub path: String,
     pub size_bytes: u64,
+    /// High-throughput XXH3 checksum (64-bit or 128-bit hex string) for deduplication and corruption verification.
+    pub hash_xxh3: Option<String>,
     /// Classifier IDs matched by this asset against configured classifiers.
     pub matched_classifier_ids: Vec<Uuid>,
     pub quality_score: Option<i32>,

@@ -347,6 +347,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .check(Expr::col(MediaAssets::SizeBytes).gte(0)),
                     )
+                    .col(ColumnDef::new(MediaAssets::HashXxh3).string())
                     .col(ColumnDef::new(MediaAssets::QualityScore).integer())
                     .col(
                         ColumnDef::new(MediaAssets::MatchedClassifierIdsJson)
@@ -583,6 +584,7 @@ enum MediaAssets {
     Id,
     Path,
     SizeBytes,
+    HashXxh3,
     QualityScore,
     MatchedClassifierIdsJson,
     MediaInfoJson,

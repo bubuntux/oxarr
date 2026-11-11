@@ -11,6 +11,7 @@ pub struct Model {
     #[sea_orm(unique)]
     pub path: String,
     pub size_bytes: i64,
+    pub hash_xxh3: Option<String>,
     pub quality_score: Option<i32>,
     pub matched_classifier_ids_json: UuidList,
     pub media_info_json: Json,
