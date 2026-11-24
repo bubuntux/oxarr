@@ -599,4 +599,67 @@ mod tests {
         db.set_user_libraries(alice.id, &[]).await.unwrap();
         assert!(db.list_accessible_libraries(&alice).await.unwrap().is_empty());
     }
+
+    #[tokio::test]
+    async fn update_and_cascade_delete_non_empty_library() {
+        let db = Database::connect_in_memory()
+            .await
+            .expect("connect memory db");
+        let now = sample_timestamp();
+
+        let mut lib = Library {
+            id: new_id(),
+            name: "Movies".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "/media/movies".to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
+        db.insert_library(&lib).await.unwrap();
+
+        lib.name = "4K Movies".to_owned();
+        lib.root_path = "/media/movies-4k".to_owned();
+        assert!(db.update_library(&lib).await.unwrap());
+        let fetched = db.get_library(lib.id).await.unwrap().unwrap();
+        assert_eq!(fetched.name, "4K Movies");
+        assert_eq!(fetched.root_path, "/media/movies-4k");
+
+        let mut movie = base_entity(
+            new_id(),
+            EntityKind::Movie,
+            "Dune",
+            EntityDetails::Movie(MovieDetails {
+                year: Some(2021),
+                ..MovieDetails::default()
+            }),
+            now,
+        );
+        movie.library_id = Some(lib.id);
+        db.insert_entity(&movie).await.unwrap();
+
+        let asset = MediaAsset {
+            id: new_id(),
+            entity_ids: vec![movie.id],
+            path: "/media/movies-4k/Dune.2021.mkv".to_owned(),
+            size_bytes: 1_000_000,
+            hash_xxh3: None,
+            matched_classifier_ids: Vec::new(),
+            quality_score: None,
+            media_info: json!({}),
+            imported_at: now,
+        };
+        db.insert_media_asset(&asset).await.unwrap();
+
+        let alice = db
+            .insert_user(new_id(), "alice", "h", false, now)
+            .await
+            .unwrap();
+        db.grant_library_access(alice.id, lib.id).await.unwrap();
+
+        assert!(db.delete_library(lib.id).await.unwrap());
+        assert!(db.get_library(lib.id).await.unwrap().is_none());
+        assert!(db.get_entity(movie.id).await.unwrap().is_none());
+        assert!(db.get_media_asset(asset.id).await.unwrap().is_none());
+        assert!(db.list_user_libraries(alice.id).await.unwrap().is_empty());
+    }
 }

@@ -106,6 +106,8 @@ pub(crate) fn build_app_with_store(state: AppState) -> (Router, SeaOrmSessionSto
         .route("/", get(|| async { Redirect::to("/libraries") }))
         .route("/libraries", get(list_libraries).post(create_library))
         .route("/libraries/{id}", get(view_library))
+        .route("/libraries/{id}/edit", post(update_library))
+        .route("/libraries/{id}/delete", post(delete_library))
         .route("/libraries/{id}/search", get(search_library_media))
         .route("/libraries/{id}/scan", post(scan_library))
         .route("/media/{id}", get(media_detail_page))
@@ -374,34 +376,149 @@ async fn logout_submit(mut auth_session: OxarrAuthSession) -> Response {
     Redirect::to("/login").into_response()
 }
 
-async fn list_libraries(
-    State(state): State<AppState>,
-    CurrentUser(user): CurrentUser,
+async fn render_libraries(
+    state: &AppState,
+    user: &User,
+    notice: Option<&str>,
+    error: Option<&str>,
 ) -> Markup {
     let libs = state
         .db
-        .list_accessible_libraries(&user)
+        .list_accessible_libraries(user)
         .await
         .unwrap_or_default();
-    ui::libraries_page(&libs, &user)
+    ui::libraries_page(&libs, user, notice, error)
+}
+
+async fn list_libraries(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Query(query): Query<SettingsQueryParams>,
+) -> Markup {
+    render_libraries(
+        &state,
+        &user,
+        query.notice.as_deref(),
+        query.error.as_deref(),
+    )
+    .await
+}
+
+fn validate_library_form(form: &CreateLibraryForm) -> Result<(String, String, EntityKind), &'static str> {
+    let name = form.name.trim();
+    if name.is_empty() {
+        return Err("Library name cannot be empty");
+    }
+    let root_path = form.root_path.trim();
+    if root_path.is_empty() {
+        return Err("Root folder path cannot be empty");
+    }
+    let kind = EntityKind::from_value(&form.kind)
+        .filter(|k| EntityKind::LIBRARY_KINDS.contains(k))
+        .ok_or("Invalid library media type")?;
+    Ok((name.to_owned(), root_path.to_owned(), kind))
 }
 
 async fn create_library(
     State(state): State<AppState>,
-    AdminUser(_admin): AdminUser,
+    AdminUser(admin): AdminUser,
     Form(form): Form<CreateLibraryForm>,
 ) -> Response {
-    let kind = EntityKind::from_value(&form.kind).unwrap_or(EntityKind::Movie);
+    let (name, root_path, kind) = match validate_library_form(&form) {
+        Ok(vals) => vals,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                render_libraries(&state, &admin, None, Some(msg)).await,
+            )
+                .into_response();
+        }
+    };
+
+    let now = Utc::now();
     let lib = Library {
         id: new_id(),
-        name: form.name,
+        name,
         kind,
-        root_path: form.root_path,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        root_path,
+        created_at: now,
+        updated_at: now,
     };
-    let _ = state.db.insert_library(&lib).await;
-    Redirect::to("/libraries").into_response()
+    if let Err(err) = state.db.insert_library(&lib).await {
+        tracing::warn!(error = %err, "failed to create library");
+        return (
+            StatusCode::BAD_REQUEST,
+            render_libraries(
+                &state,
+                &admin,
+                None,
+                Some("Could not create library (name or root path may already exist, or type is unsupported)"),
+            )
+            .await,
+        )
+            .into_response();
+    }
+
+    Redirect::to("/libraries?notice=Library+created").into_response()
+}
+
+async fn update_library(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    Path(id): Path<Uuid>,
+    Form(form): Form<CreateLibraryForm>,
+) -> Response {
+    let Ok(Some(mut existing)) = state.db.get_library(id).await else {
+        return (StatusCode::NOT_FOUND, "Library not found").into_response();
+    };
+
+    let (name, root_path, kind) = match validate_library_form(&form) {
+        Ok(vals) => vals,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                render_libraries(&state, &admin, None, Some(msg)).await,
+            )
+                .into_response();
+        }
+    };
+
+    existing.name = name;
+    existing.root_path = root_path;
+    existing.kind = kind;
+    existing.updated_at = Utc::now();
+
+    if let Err(err) = state.db.update_library(&existing).await {
+        tracing::warn!(library_id = %id, error = %err, "failed to update library");
+        return (
+            StatusCode::BAD_REQUEST,
+            render_libraries(
+                &state,
+                &admin,
+                None,
+                Some("Could not update library (name or root path may already exist)"),
+            )
+            .await,
+        )
+            .into_response();
+    }
+
+    Redirect::to("/libraries?notice=Library+updated").into_response()
+}
+
+async fn delete_library(
+    State(state): State<AppState>,
+    AdminUser(_admin): AdminUser,
+    Path(id): Path<Uuid>,
+) -> Response {
+    match state.db.delete_library(id).await {
+        Ok(true) => Redirect::to("/libraries?notice=Library+deleted").into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "Library not found").into_response(),
+        Err(err) => {
+            tracing::error!(library_id = %id, error = %err, "failed to delete library");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete library").into_response()
+        }
+    }
 }
 
 async fn view_library(
@@ -1382,5 +1499,135 @@ mod tests {
             .status(),
             StatusCode::SEE_OTHER
         );
+    }
+
+    #[tokio::test]
+    async fn library_edit_and_delete_permissions_and_cascade() {
+        let (app, db) = test_app().await;
+        let admin_cookie = bootstrap_admin(&app).await;
+
+        let create_resp = send(
+            &app,
+            post_form(
+                "/libraries",
+                "name=Movies&root_path=%2Fmedia%2Fmovies&kind=movie",
+                Some(&admin_cookie),
+            ),
+        )
+        .await;
+        assert_eq!(create_resp.status(), StatusCode::SEE_OTHER);
+
+        let lib = db.list_libraries().await.unwrap().pop().unwrap();
+
+        // Create standard user alice and verify she cannot edit or delete libraries
+        assert_eq!(
+            send(
+                &app,
+                post_form(
+                    "/settings/users",
+                    "username=alice&password=alicepassword1",
+                    Some(&admin_cookie),
+                ),
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+        let alice_login = send(
+            &app,
+            post_form("/login", "username=alice&password=alicepassword1", None),
+        )
+        .await;
+        let alice_cookie = extract_cookie_pair(&alice_login);
+
+        assert_eq!(
+            send(
+                &app,
+                post_form(
+                    &format!("/libraries/{}/edit", lib.id),
+                    "name=Hacked&root_path=%2Ftmp&kind=movie",
+                    Some(&alice_cookie),
+                ),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            send(
+                &app,
+                post_form(
+                    &format!("/libraries/{}/delete", lib.id),
+                    "",
+                    Some(&alice_cookie),
+                ),
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        // Admin edits library name and path
+        let edit_resp = send(
+            &app,
+            post_form(
+                &format!("/libraries/{}/edit", lib.id),
+                "name=4K+Movies&root_path=%2Fmedia%2F4k&kind=movie",
+                Some(&admin_cookie),
+            ),
+        )
+        .await;
+        assert_eq!(edit_resp.status(), StatusCode::SEE_OTHER);
+        let updated = db.get_library(lib.id).await.unwrap().unwrap();
+        assert_eq!(updated.name, "4K Movies");
+        assert_eq!(updated.root_path, "/media/4k");
+
+        // Populate library with a catalog entity and media asset, then delete library
+        let now = Utc::now();
+        let entity = Entity {
+            id: new_id(),
+            kind: EntityKind::Movie,
+            library_id: Some(lib.id),
+            title: "Arrival".to_owned(),
+            original_title: None,
+            original_language: None,
+            monitored: true,
+            external_ids: std::collections::BTreeMap::new(),
+            metadata: oxarr_types::EntityMetadata::default(),
+            details: EntityDetails::Movie(MovieDetails {
+                year: Some(2016),
+                ..Default::default()
+            }),
+            created_at: now,
+            updated_at: now,
+        };
+        db.insert_entity(&entity).await.unwrap();
+
+        let asset = MediaAsset {
+            id: new_id(),
+            entity_ids: vec![entity.id],
+            path: "/media/4k/Arrival.2016.mkv".to_owned(),
+            size_bytes: 5_000_000,
+            hash_xxh3: None,
+            matched_classifier_ids: Vec::new(),
+            quality_score: None,
+            media_info: serde_json::json!({}),
+            imported_at: now,
+        };
+        db.insert_media_asset(&asset).await.unwrap();
+
+        let delete_resp = send(
+            &app,
+            post_form(
+                &format!("/libraries/{}/delete", lib.id),
+                "",
+                Some(&admin_cookie),
+            ),
+        )
+        .await;
+        assert_eq!(delete_resp.status(), StatusCode::SEE_OTHER);
+        assert!(db.get_library(lib.id).await.unwrap().is_none());
+        assert!(db.get_entity(entity.id).await.unwrap().is_none());
+        assert!(db.get_media_asset(asset.id).await.unwrap().is_none());
     }
 }

@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
 use oxarr_types::Library;
-use sea_orm::{ActiveModelTrait, EntityTrait, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+};
 use uuid::Uuid;
 
-use super::models::library;
+use super::models::{entity, library};
 use super::Database;
 
 pub(super) fn into_domain(model: library::Model) -> Library {
@@ -74,12 +76,23 @@ impl Database {
         Ok(true)
     }
 
+    /// Deletes a library and cascades removal of its catalog entities, orphaned media assets,
+    /// and user access grants inside a single transaction. Files on disk are untouched.
     pub async fn delete_library(&self, id: Uuid) -> Result<bool> {
+        let tx = self.conn.begin().await?;
+
+        entity::Entity::delete_many()
+            .filter(entity::Column::LibraryId.eq(id))
+            .exec(&tx)
+            .await
+            .with_context(|| format!("failed to delete entities in library {id}"))?;
+
         let res = library::Entity::delete_by_id(id)
-            .exec(&self.conn)
+            .exec(&tx)
             .await
             .with_context(|| format!("failed to delete library {id}"))?;
 
+        tx.commit().await?;
         Ok(res.rows_affected > 0)
     }
 }
