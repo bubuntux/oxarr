@@ -1,4 +1,5 @@
 use maud::{html, Markup, PreEscaped, DOCTYPE};
+use oxarr_types::User;
 
 pub const LOGO_SVG: &str = include_str!("../../../../assets/icons/logo.svg");
 
@@ -50,7 +51,7 @@ const CSS_STYLES: &str = r#"
         padding: 1.5rem 1rem;
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 0.75rem;
     }
 
     .logo {
@@ -84,8 +85,16 @@ const CSS_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    .theme-toggle {
+    .nav-footer {
         margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        border-top: 1px solid var(--border-color);
+        padding-top: 1rem;
+    }
+
+    .theme-toggle {
         padding: 0.5rem 1rem;
         border: 1px solid var(--border-color);
         background: transparent;
@@ -96,6 +105,7 @@ const CSS_STYLES: &str = r#"
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
+        width: 100%;
     }
 
     main {
@@ -143,6 +153,26 @@ const CSS_STYLES: &str = r#"
         color: var(--accent);
         border: 1px solid var(--border-color);
     }
+
+    .alert-error {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid var(--danger);
+        background-color: rgba(239, 68, 68, 0.12);
+        color: var(--danger);
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+    }
+
+    .alert-success {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid var(--success);
+        background-color: rgba(34, 197, 94, 0.12);
+        color: var(--success);
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+    }
 "#;
 
 const THEME_SCRIPT: &str = r#"
@@ -160,7 +190,34 @@ const THEME_SCRIPT: &str = r#"
     }
 "#;
 
-pub fn base_layout(title: &str, current_nav: &str, content: Markup) -> Markup {
+pub fn auth_layout(title: &str, content: Markup) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" data-theme="dark" {
+            head {
+                meta charset="UTF-8";
+                meta name="viewport" content="width=device-width, initial-scale=1.0";
+                link rel="icon" type="image/svg+xml" href="/logo.svg";
+                title { (title) " - oxarr" }
+                style { (PreEscaped(CSS_STYLES)) }
+            }
+            body style="align-items: center; justify-content: center; padding: 1.5rem;" {
+                div class="card" style="width: 100%; max-width: 420px;" {
+                    div class="logo" style="justify-content: center; margin-bottom: 1.5rem;" {
+                        (PreEscaped(LOGO_SVG))
+                        span { "oxarr" }
+                    }
+                    (content)
+                }
+                script {
+                    (PreEscaped(THEME_SCRIPT))
+                }
+            }
+        }
+    }
+}
+
+pub fn base_layout(title: &str, current_nav: &str, current_user: &User, content: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" data-theme="dark" {
@@ -181,11 +238,34 @@ pub fn base_layout(title: &str, current_nav: &str, content: Markup) -> Markup {
                     a href="/libraries" class=(if current_nav == "libraries" { "active" } else { "" }) {
                         "📁 Libraries"
                     }
-                    a href="/settings" class=(if current_nav == "settings" { "active" } else { "" }) {
-                        "⚙️ Settings"
+                    @if current_user.is_admin {
+                        a href="/settings" class=(if current_nav == "settings" { "active" } else { "" }) {
+                            "⚙️ Settings"
+                        }
                     }
-                    button class="theme-toggle" onclick="toggleTheme()" {
-                        "🌓 Toggle Theme"
+                    a href="/account" class=(if current_nav == "account" { "active" } else { "" }) {
+                        "👤 Account"
+                    }
+
+                    div class="nav-footer" {
+                        div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0.5rem;" {
+                            span style="font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis;" {
+                                (current_user.username)
+                            }
+                            @if current_user.is_admin {
+                                span class="badge" style="color: #f59e0b; border-color: #f59e0b;" { "Admin" }
+                            } @else {
+                                span class="badge" { "User" }
+                            }
+                        }
+                        button class="theme-toggle" onclick="toggleTheme()" {
+                            "🌓 Toggle Theme"
+                        }
+                        form method="POST" action="/logout" {
+                            button type="submit" class="theme-toggle" style="color: var(--text-secondary);" {
+                                "Sign Out"
+                            }
+                        }
                     }
                 }
                 main id="content" {
@@ -202,14 +282,40 @@ pub fn base_layout(title: &str, current_nav: &str, content: Markup) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use maud::html;
+    use uuid::Uuid;
 
     #[test]
     fn test_base_layout_includes_favicon_and_logo() {
-        let markup = base_layout("Dashboard", "libraries", html! { p { "Hello" } });
+        let user = User {
+            id: Uuid::nil(),
+            username: "admin".to_owned(),
+            is_admin: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let markup = base_layout("Dashboard", "libraries", &user, html! { p { "Hello" } });
         let html_str = markup.into_string();
         assert!(html_str.contains(r#"<link rel="icon" type="image/svg+xml" href="/logo.svg">"#));
         assert!(html_str.contains("<svg"));
         assert!(html_str.contains("<span>oxarr</span>"));
+        assert!(html_str.contains("/settings"));
+        assert!(html_str.contains("/logout"));
+    }
+
+    #[test]
+    fn test_base_layout_hides_settings_for_standard_user() {
+        let user = User {
+            id: Uuid::nil(),
+            username: "alice".to_owned(),
+            is_admin: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let markup = base_layout("Dashboard", "libraries", &user, html! { p { "Hello" } });
+        let html_str = markup.into_string();
+        assert!(!html_str.contains(r#"href="/settings""#));
+        assert!(html_str.contains(r#"href="/account""#));
     }
 }

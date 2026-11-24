@@ -16,7 +16,8 @@ Oxarr is a unified, high-performance media cataloging, inspection, and streaming
    - **Pluggable Engine:** Native and Wasm (Extism) providers (TMDB, TVMaze, TheTVDB, OMDb).
    - **Canonical Key Linking:** External IDs (`imdb`, `tmdb`, `tvmaze`) resolved across services for unambiguous entity unification and priority fallbacks.
 5. **Multi-User RBAC & Hypermedia UI:**
-   - **Access Control:** User accounts with admin flags and library-level grant mappings (`user_libraries`).
+   - **Authentication & Sessions:** First-run administrator setup (`/setup`), Argon2id password hashing (`argon2`), and `axum-login` + `tower-sessions` backed by a SeaORM `SessionStore` (`sessions` table in SQLite) with `HttpOnly`, `SameSite=Lax` cookies and automatic `session_auth_hash` invalidation on password changes.
+   - **Access Control:** User accounts with admin flags and library-level grant mappings (`user_libraries`) enforced across server routes and UI views.
    - **Management Dashboard:** Zero-JS-build management dashboard rendered on the server (`axum` + `maud` + `htmx`), paired with a Jellyfin-compatible API surface so existing TV, mobile, and desktop media players work out of the box.
 
 ---
@@ -71,6 +72,7 @@ oxarr/
 | **Inspection & Hashing** | `ffprobe` (headless) + `xxhash-rust` (XXH3) | Stream-level technical details and 10+ GB/s file hashing for cross-server deduplication. |
 | **Filesystem Watcher** | `notify` + `notify-debouncer-mini` | Low-latency inotify/kqueue/FSEvents detection with debounced quiet windows. |
 | **Web Server** | `axum` + `tower` | Modular, ergonomic async HTTP framework. |
+| **Authentication** | `axum-login` + `tower-sessions` + `argon2` | Standard Axum authentication/session middleware backed by a custom SeaORM `SessionStore` (`sessions` table) and Argon2id password hashing. |
 | **Plugin Sandbox** | `extism` (Wasmtime) | Polyglot support, memory-safe sandboxing, network whitelisting. |
 | **Web UI** | `maud` + `htmx` | Pure Rust compile-time HTML macro, zero templates/HTML files, microsecond render times, zero npm bloat. |
 | **Environment** | `devenv` | Reproducible development shell with pinned Rust and targets. |

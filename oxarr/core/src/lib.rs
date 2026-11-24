@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod db;
 pub mod provider;
 pub mod scanner;

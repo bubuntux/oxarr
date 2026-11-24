@@ -4,6 +4,7 @@ mod collections;
 mod entities;
 mod libraries;
 pub mod models;
+mod sessions;
 mod users;
 
 use std::str::FromStr;
@@ -457,5 +458,145 @@ mod tests {
         // Revoke access
         assert!(db.revoke_library_access(user.id, lib_kids.id).await.unwrap());
         assert!(!db.user_can_access_library(user.id, lib_kids.id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn initial_admin_and_session_lifecycle() {
+        let db = Database::connect_in_memory()
+            .await
+            .expect("connect memory db");
+        let now = sample_timestamp();
+
+        assert_eq!(db.count_users().await.unwrap(), 0);
+        assert_eq!(db.count_admins().await.unwrap(), 0);
+
+        let admin = db
+            .create_initial_admin(new_id(), "admin", "hash1", now)
+            .await
+            .unwrap()
+            .expect("initial admin should be created when users table is empty");
+        assert!(admin.is_admin);
+        assert_eq!(db.count_users().await.unwrap(), 1);
+        assert_eq!(db.count_admins().await.unwrap(), 1);
+
+        // Subsequent create_initial_admin must fail cleanly once any user exists
+        let second = db
+            .create_initial_admin(new_id(), "admin2", "hash2", now)
+            .await
+            .unwrap();
+        assert!(second.is_none());
+
+        let (fetched_user, fetched_hash) = db
+            .get_user_with_password_hash(admin.id)
+            .await
+            .unwrap()
+            .expect("user by id with password hash");
+        assert_eq!(fetched_user.id, admin.id);
+        assert_eq!(fetched_hash, "hash1");
+
+        // Sessions: insert, conflict check, upsert, load, expire, delete
+        let now_unix = now.timestamp();
+        assert!(db
+            .insert_session("sess-1", r#"{"a":1}"#, now_unix + 3600)
+            .await
+            .unwrap());
+        assert!(!db
+            .insert_session("sess-1", r#"{"a":2}"#, now_unix + 3600)
+            .await
+            .unwrap());
+        assert_eq!(
+            db.get_session("sess-1", now_unix).await.unwrap().as_deref(),
+            Some(r#"{"a":1}"#)
+        );
+
+        db.upsert_session("sess-1", r#"{"a":3}"#, now_unix + 7200)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.get_session("sess-1", now_unix).await.unwrap().as_deref(),
+            Some(r#"{"a":3}"#)
+        );
+
+        db.insert_session("sess-expired", r#"{"old":true}"#, now_unix - 10)
+            .await
+            .unwrap();
+        assert_eq!(db.get_session("sess-expired", now_unix).await.unwrap(), None);
+
+        let pruned = db.delete_expired_sessions(now_unix).await.unwrap();
+        assert_eq!(pruned, 1);
+
+        assert!(db.delete_session("sess-1").await.unwrap());
+        assert!(!db.delete_session("sess-1").await.unwrap());
+        assert_eq!(db.get_session("sess-1", now_unix).await.unwrap(), None);
+
+        // Password update & delete user
+        assert!(db
+            .update_user_password(admin.id, "hash_updated", now)
+            .await
+            .unwrap());
+        let (_, stored_hash) = db.get_user_by_username("admin").await.unwrap().unwrap();
+        assert_eq!(stored_hash, "hash_updated");
+
+        assert!(db.delete_user(admin.id).await.unwrap());
+        assert_eq!(db.count_users().await.unwrap(), 0);
+        assert!(db
+            .get_user_with_password_hash(admin.id)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn set_user_libraries_and_list_accessible_libraries() {
+        let db = Database::connect_in_memory()
+            .await
+            .expect("connect memory db");
+        let now = sample_timestamp();
+
+        let admin = db
+            .insert_user(new_id(), "admin", "h1", true, now)
+            .await
+            .unwrap();
+        let alice = db
+            .insert_user(new_id(), "alice", "h2", false, now)
+            .await
+            .unwrap();
+
+        let lib_a = Library {
+            id: new_id(),
+            name: "Alpha".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "/media/alpha".to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
+        let lib_b = Library {
+            id: new_id(),
+            name: "Beta".to_owned(),
+            kind: EntityKind::Movie,
+            root_path: "/media/beta".to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
+        db.insert_library(&lib_a).await.unwrap();
+        db.insert_library(&lib_b).await.unwrap();
+
+        assert_eq!(db.list_accessible_libraries(&admin).await.unwrap().len(), 2);
+        assert!(db.list_accessible_libraries(&alice).await.unwrap().is_empty());
+
+        db.set_user_libraries(alice.id, &[lib_b.id, lib_b.id])
+            .await
+            .unwrap();
+        let alice_libs = db.list_accessible_libraries(&alice).await.unwrap();
+        assert_eq!(alice_libs.iter().map(|l| l.id).collect::<Vec<_>>(), vec![lib_b.id]);
+
+        // Replacing with lib_a removes lib_b
+        db.set_user_libraries(alice.id, &[lib_a.id]).await.unwrap();
+        let alice_libs = db.list_accessible_libraries(&alice).await.unwrap();
+        assert_eq!(alice_libs.iter().map(|l| l.id).collect::<Vec<_>>(), vec![lib_a.id]);
+
+        // Clearing all access
+        db.set_user_libraries(alice.id, &[]).await.unwrap();
+        assert!(db.list_accessible_libraries(&alice).await.unwrap().is_empty());
     }
 }

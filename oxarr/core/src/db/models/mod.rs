@@ -9,5 +9,6 @@ pub mod json_types;
 pub mod library;
 pub mod media_asset;
 pub mod movie;
+pub mod session;
 pub mod user;
 pub mod user_library;

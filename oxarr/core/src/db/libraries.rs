@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::models::library;
 use super::Database;
 
-fn into_domain(model: library::Model) -> Library {
+pub(super) fn into_domain(model: library::Model) -> Library {
     Library {
         id: model.id,
         name: model.name,

@@ -1,4 +1,5 @@
 mod m20261101_000001_initial_schema;
+mod m20261122_000001_sessions;
 
 use sea_orm_migration::prelude::*;
 pub use sea_orm_migration::MigratorTrait;
@@ -8,6 +9,9 @@ pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20261101_000001_initial_schema::Migration)]
+        vec![
+            Box::new(m20261101_000001_initial_schema::Migration),
+            Box::new(m20261122_000001_sessions::Migration),
+        ]
     }
 }

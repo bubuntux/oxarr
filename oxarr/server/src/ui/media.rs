@@ -1,5 +1,5 @@
 use maud::{html, Markup};
-use oxarr_types::{Entity, EntityDetails, Library, MediaAsset};
+use oxarr_types::{Entity, EntityDetails, Library, MediaAsset, User};
 
 use super::layout::base_layout;
 
@@ -57,7 +57,7 @@ pub fn media_cards(entities: &[Entity]) -> Markup {
     }
 }
 
-pub fn library_media_page(library: &Library, entities: &[Entity]) -> Markup {
+pub fn library_media_page(library: &Library, entities: &[Entity], current_user: &User) -> Markup {
     let content = html! {
         div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;" {
             div {
@@ -67,8 +67,10 @@ pub fn library_media_page(library: &Library, entities: &[Entity]) -> Markup {
                 h1 style="font-size: 2rem; margin-top: 0.25rem;" { (library.name) }
                 p style="color: var(--text-secondary); font-size: 0.875rem;" { (library.root_path) }
             }
-            button class="btn" hx-post=(format!("/libraries/{}/scan", library.id)) hx-swap="outerHTML" {
-                "🔄 Scan Folder"
+            @if current_user.is_admin {
+                button class="btn" hx-post=(format!("/libraries/{}/scan", library.id)) hx-swap="outerHTML" {
+                    "🔄 Scan Folder"
+                }
             }
         }
 
@@ -90,17 +92,19 @@ pub fn library_media_page(library: &Library, entities: &[Entity]) -> Markup {
                 p style="color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 1rem;" {
                     "No media detected in this folder yet."
                 }
-                button class="btn" hx-post=(format!("/libraries/{}/scan", library.id)) hx-swap="outerHTML" {
-                    "Scan Now"
+                @if current_user.is_admin {
+                    button class="btn" hx-post=(format!("/libraries/{}/scan", library.id)) hx-swap="outerHTML" {
+                        "Scan Now"
+                    }
                 }
             }
         }
     };
 
-    base_layout(&library.name, "libraries", content)
+    base_layout(&library.name, "libraries", current_user, content)
 }
 
-pub fn media_detail_page(entity: &Entity, assets: &[MediaAsset]) -> Markup {
+pub fn media_detail_page(entity: &Entity, assets: &[MediaAsset], current_user: &User) -> Markup {
     let (year_display, runtime_display) = match &entity.details {
         EntityDetails::Movie(m) => (
             m.year.map(|y| y.to_string()).unwrap_or_default(),
@@ -254,7 +258,7 @@ pub fn media_detail_page(entity: &Entity, assets: &[MediaAsset]) -> Markup {
         }
     };
 
-    base_layout(&entity.title, "libraries", content)
+    base_layout(&entity.title, "libraries", current_user, content)
 }
 
 fn render_streams_table(media_info: &serde_json::Value) -> Markup {
