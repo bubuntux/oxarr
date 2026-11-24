@@ -7,6 +7,7 @@ pub mod models;
 mod sessions;
 mod users;
 
+use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -25,7 +26,10 @@ pub struct Database {
 
 impl Database {
     /// Opens a file-backed SQLite pool in WAL mode and runs embedded SeaORM migrations.
+    /// Creates any missing parent directories for file-backed SQLite URLs.
     pub async fn connect(database_url: &str) -> Result<Self> {
+        ensure_sqlite_parent_dir(database_url)?;
+
         let connect_options = base_connect_options(database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
@@ -72,6 +76,33 @@ impl Database {
             .context("failed to run embedded SeaORM migrations")?;
         Ok(())
     }
+}
+
+fn ensure_sqlite_parent_dir(database_url: &str) -> Result<()> {
+    let without_scheme = database_url
+        .strip_prefix("sqlite://")
+        .or_else(|| database_url.strip_prefix("sqlite:"))
+        .unwrap_or(database_url);
+    let path_part = without_scheme
+        .split_once('?')
+        .map_or(without_scheme, |(path, _)| path);
+
+    if path_part.is_empty() || path_part == ":memory:" {
+        return Ok(());
+    }
+
+    if let Some(parent) = Path::new(path_part).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create parent directory '{}' for SQLite database",
+                    parent.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 fn base_connect_options(database_url: &str) -> Result<SqliteConnectOptions> {
@@ -135,10 +166,11 @@ mod tests {
     #[tokio::test]
     async fn file_backed_connect_enables_wal_foreign_keys_and_recursive_triggers() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let db_path = temp_dir.path().join("oxarr.db");
+        let db_path = temp_dir.path().join("nested/state/oxarr.db");
         let db_url = format!("sqlite://{}", db_path.display());
 
         let db = Database::connect(&db_url).await.expect("connect file db");
+        assert!(db_path.exists());
 
         let journal_row = db
             .conn()

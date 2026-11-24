@@ -163,8 +163,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://./oxarr.db?mode=rwc".to_owned());
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| default_database_url());
     let db = Database::connect(&db_url).await?;
     let user_count = db.count_users().await.unwrap_or(0);
 
@@ -976,6 +975,35 @@ async fn logo_handler() -> impl IntoResponse {
     )
 }
 
+fn default_database_url() -> String {
+    default_database_url_from(
+        std::env::var("OXARR_DATA_DIR").ok().as_deref(),
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+fn default_database_url_from(
+    oxarr_data_dir: Option<&str>,
+    xdg_data_home: Option<&str>,
+    home: Option<&str>,
+) -> String {
+    let base_dir = if let Some(dir) = oxarr_data_dir.filter(|s| !s.trim().is_empty()) {
+        std::path::PathBuf::from(dir)
+    } else if let Some(xdg) = xdg_data_home.filter(|s| !s.trim().is_empty()) {
+        std::path::PathBuf::from(xdg).join("oxarr")
+    } else if let Some(home_dir) = home.filter(|s| !s.trim().is_empty()) {
+        std::path::PathBuf::from(home_dir)
+            .join(".local")
+            .join("share")
+            .join("oxarr")
+    } else {
+        std::path::PathBuf::from(".oxarr")
+    };
+
+    format!("sqlite://{}?mode=rwc", base_dir.join("oxarr.db").display())
+}
+
 fn should_use_ansi() -> bool {
     if std::env::var("NO_COLOR").is_ok() {
         return false;
@@ -1064,6 +1092,26 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
         assert_eq!(resp.headers().get(header::LOCATION).unwrap(), "/libraries");
         extract_cookie_pair(&resp)
+    }
+
+    #[test]
+    fn resolves_default_database_url_precedence() {
+        assert_eq!(
+            default_database_url_from(Some("/srv/oxarr"), Some("/xdg"), Some("/home/u")),
+            "sqlite:///srv/oxarr/oxarr.db?mode=rwc"
+        );
+        assert_eq!(
+            default_database_url_from(None, Some("/xdg"), Some("/home/u")),
+            "sqlite:///xdg/oxarr/oxarr.db?mode=rwc"
+        );
+        assert_eq!(
+            default_database_url_from(None, Some(""), Some("/home/u")),
+            "sqlite:///home/u/.local/share/oxarr/oxarr.db?mode=rwc"
+        );
+        assert_eq!(
+            default_database_url_from(None, None, None),
+            "sqlite://.oxarr/oxarr.db?mode=rwc"
+        );
     }
 
     #[tokio::test]

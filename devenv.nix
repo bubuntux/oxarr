@@ -25,7 +25,7 @@
   ];
 
   # Local development database, shared by the db-* scripts and `cargo run -p oxarr-server`.
-  env.DATABASE_URL = "sqlite://./oxarr.db?mode=rwc";
+  env.DATABASE_URL = "sqlite://.devenv/state/oxarr.db?mode=rwc";
   env.RUST_LOG = "oxarr=debug,tower_http=debug,info";
   env.PORT = "8080";
 
